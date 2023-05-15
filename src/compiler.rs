@@ -1,3 +1,6 @@
+/**
+ * Main compiler file.
+ */
 use im::HashMap;
 use im::HashSet;
 

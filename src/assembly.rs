@@ -12,10 +12,12 @@ pub enum Val {
 #[derive(Debug, Clone, Copy)]
 pub enum Reg {
     RAX, // return value
-    RBX, // temporary
+    RBX, // temporary, callee-saved
     RDI, // first function arg, caller-saved
     RSP, // stack pointer
     R10, // scratch register, caller-saved
+    RSI, // second function arg, caller-saved
+    R15, // heap pointer
 }
 
 // Assembly instructions
@@ -200,6 +202,8 @@ fn val_to_str(val: &Val) -> String {
         Val::Reg(Reg::RDI) => format!("rdi"),
         Val::Reg(Reg::RSP) => format!("rsp"),
         Val::Reg(Reg::R10) => format!("r10"),
+        Val::Reg(Reg::RSI) => format!("rsi"),
+        Val::Reg(Reg::R15) => format!("r15"),
 
         Val::RegOff(Reg::RAX, offset) => {
             if *offset > 0 {
@@ -213,6 +217,13 @@ fn val_to_str(val: &Val) -> String {
                 format!("[rsp - {offset}]")
             } else {
                 format!("[rsp + {}]", -1 * offset)
+            }
+        }
+        Val::RegOff(Reg::R15, offset) => {
+            if *offset > 0 {
+                format!("[r15 - {offset}]")
+            } else {
+                format!("[r15 + {}]", -1 * offset)
             }
         }
 
