@@ -1,5 +1,0 @@
-(fun (foo a b c)
-    (+ (+ a b) c)
-)
-
-(let ( (x 10) (y 20) (z 30) ) (foo x y z) )
