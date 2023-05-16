@@ -12,16 +12,6 @@ use crate::abstract_syntax::*;
 use crate::assembly::*;
 use crate::constants::*;
 
-const WORD_SIZE: i64 = 8;
-
-const I63_MIN: i64 = -4611686018427387904;
-const I63_MAX: i64 = 4611686018427387903;
-
-// const NIL_VAL: i64 = 1;
-const FALSE_VAL: i64 = 3;
-const TRUE_VAL: i64 = 7;
-const BOOLEAN_LSB: i64 = 0b11;
-
 static mut LABEL_CTR: usize = 0;
 
 // Contains contextual information the compiler uses to compile each expression.
@@ -135,6 +125,12 @@ pub fn compile_program(prog: &Program, start_label: String) -> CompiledProgram {
         instr: Instr::Label(start_label.to_string()),
         indentation,
     });
+    // Move the heap start address into R15
+    main_instrs.push(FInstr {
+        instr: Instr::Mov(Val::Reg(Reg::R15), Val::Reg(Reg::RSI)),
+        indentation: indentation + 1,
+    });
+    // Main body
     main_instrs.append(&mut compile_expr(
         &prog.main,
         &Context {
@@ -715,8 +711,41 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<FInstr> {
                 indentation: ctxt.indentation,
             });
         }
-        Expr::Tuple(exprs) => {
-            panic!("TODO");
+        Expr::Tuple(args) => {
+            // Save the current value of the heap pointer; this is the return value.
+            let tup_addr_offset = ctxt.si * WORD_SIZE;
+            instrs.push(FInstr {
+                instr: Instr::Mov(Val::RegOff(Reg::RSP, tup_addr_offset), Val::Reg(Reg::R15)),
+                indentation: ctxt.indentation,
+            });
+            // Incrementally evaluate each argument and store it in the heap
+            for arg in args.iter() {
+                instrs.append(&mut compile_expr(
+                    arg,
+                    &Context {
+                        si: ctxt.si + 1,
+                        ..*ctxt
+                    },
+                ));
+                instrs.push(FInstr {
+                    instr: Instr::Mov(Val::RegOff(Reg::R15, 0), Val::Reg(Reg::RAX)),
+                    indentation: ctxt.indentation,
+                });
+                // Update heap pointer
+                instrs.push(FInstr {
+                    instr: Instr::Add(Val::Reg(Reg::R15), Val::Imm(2 * WORD_SIZE)),
+                    indentation: ctxt.indentation,
+                });
+            }
+            // Tag the start address of the heap pointer before returning it
+            instrs.push(FInstr {
+                instr: Instr::Mov(Val::Reg(Reg::RAX), Val::RegOff(Reg::RSP, tup_addr_offset)),
+                indentation: ctxt.indentation,
+            });
+            instrs.push(FInstr {
+                instr: Instr::Add(Val::Reg(Reg::RAX), Val::Imm(1)),
+                indentation: ctxt.indentation,
+            });
         }
         Expr::Index(addr, offset) => {
             panic!("TODO");
