@@ -1,5 +1,9 @@
 /**
  * Main compiler file.
+ * Value representation:
+ * Numbers have a 0 as the LSB.
+ * Booleans have a 11 as the LSBs.
+ * Tuples (pointers) have a 01 as the LSBs.
  */
 use im::HashMap;
 use im::HashSet;
@@ -13,8 +17,10 @@ const WORD_SIZE: i64 = 8;
 const I63_MIN: i64 = -4611686018427387904;
 const I63_MAX: i64 = 4611686018427387903;
 
-const FALSE_INT: i64 = 1;
-const TRUE_INT: i64 = 3;
+// const NIL_VAL: i64 = 1;
+const FALSE_VAL: i64 = 3;
+const TRUE_VAL: i64 = 7;
+const BOOLEAN_LSB: i64 = 0b11;
 
 static mut LABEL_CTR: usize = 0;
 
@@ -169,11 +175,11 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<FInstr> {
             }
         }
         Expr::Boolean(false) => instrs.push(FInstr {
-            instr: Instr::Mov(Val::Reg(Reg::RAX), Val::Imm(FALSE_INT)),
+            instr: Instr::Mov(Val::Reg(Reg::RAX), Val::Imm(FALSE_VAL)),
             indentation: ctxt.indentation,
         }),
         Expr::Boolean(true) => instrs.push(FInstr {
-            instr: Instr::Mov(Val::Reg(Reg::RAX), Val::Imm(TRUE_INT)),
+            instr: Instr::Mov(Val::Reg(Reg::RAX), Val::Imm(TRUE_VAL)),
             indentation: ctxt.indentation,
         }),
 
@@ -221,11 +227,11 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<FInstr> {
             instrs.append(&mut is_number_type_instrs(ctxt));
             // Move false into RAX by default. Conditionally move true into RAX if e is a number
             instrs.push(FInstr {
-                instr: Instr::Mov(Val::Reg(Reg::RAX), Val::Imm(FALSE_INT)),
+                instr: Instr::Mov(Val::Reg(Reg::RAX), Val::Imm(FALSE_VAL)),
                 indentation: ctxt.indentation,
             });
             instrs.push(FInstr {
-                instr: Instr::Mov(Val::Reg(Reg::RBX), Val::Imm(TRUE_INT)),
+                instr: Instr::Mov(Val::Reg(Reg::RBX), Val::Imm(TRUE_VAL)),
                 indentation: ctxt.indentation,
             });
             instrs.push(FInstr {
@@ -239,11 +245,11 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<FInstr> {
             instrs.append(&mut is_boolean_type_instrs(ctxt));
             // Move false into RAX by default. Conditionally move true into RAX if e is a Boolean
             instrs.push(FInstr {
-                instr: Instr::Mov(Val::Reg(Reg::RAX), Val::Imm(FALSE_INT)),
+                instr: Instr::Mov(Val::Reg(Reg::RAX), Val::Imm(FALSE_VAL)),
                 indentation: ctxt.indentation,
             });
             instrs.push(FInstr {
-                instr: Instr::Mov(Val::Reg(Reg::RBX), Val::Imm(TRUE_INT)),
+                instr: Instr::Mov(Val::Reg(Reg::RBX), Val::Imm(TRUE_VAL)),
                 indentation: ctxt.indentation,
             });
             instrs.push(FInstr {
@@ -312,9 +318,9 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<FInstr> {
             };
 
             instrs.append(&mut compile_expr(e1, ctxt));
-            // If e1 didn't evaluate to a number, jump to error code
+            // If e1 didn't evaluate to a number (LSB is not 0), jump to error code
             instrs.push(FInstr {
-                instr: Instr::Test(Val::Reg(Reg::RAX), Val::Imm(FALSE_INT)),
+                instr: Instr::Test(Val::Reg(Reg::RAX), Val::Imm(1)),
                 indentation: ctxt.indentation,
             });
             instrs.push(FInstr {
@@ -331,9 +337,9 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<FInstr> {
             // e2 instructions
             instrs.append(&mut compile_expr(e2, e2_ctxt));
 
-            // If e2 didn't evaluate to a number, jump to error code
+            // If e2 didn't evaluate to a number (LSB is not 0), jump to error code
             instrs.push(FInstr {
-                instr: Instr::Test(Val::Reg(Reg::RAX), Val::Imm(FALSE_INT)),
+                instr: Instr::Test(Val::Reg(Reg::RAX), Val::Imm(1)),
                 indentation: ctxt.indentation,
             });
             instrs.push(FInstr {
@@ -420,13 +426,13 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<FInstr> {
 
                     // Move true into RBX for the conditional move below
                     instrs.push(FInstr {
-                        instr: Instr::Mov(Val::Reg(Reg::RBX), Val::Imm(TRUE_INT)),
+                        instr: Instr::Mov(Val::Reg(Reg::RBX), Val::Imm(TRUE_VAL)),
                         indentation: ctxt.indentation,
                     });
                     // By default, move false into RAX.
                     // If the equality comparison was true, we conditionally move true into RAX.
                     instrs.push(FInstr {
-                        instr: Instr::Mov(Val::Reg(Reg::RAX), Val::Imm(FALSE_INT)),
+                        instr: Instr::Mov(Val::Reg(Reg::RAX), Val::Imm(FALSE_VAL)),
                         indentation: ctxt.indentation,
                     });
                     instrs.push(FInstr {
@@ -524,11 +530,11 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<FInstr> {
 
             // If the condition evaluated to false, jump to the else branch.
             instrs.push(FInstr {
-                instr: Instr::Cmp(Val::Reg(Reg::RAX), Val::Imm(FALSE_INT)),
+                instr: Instr::Cmp(Val::Reg(Reg::RAX), Val::Imm(FALSE_VAL)),
                 indentation: ctxt.indentation,
             });
             instrs.push(FInstr {
-                instr: Instr::JmpEqual(else_label.clone()),
+                instr: Instr::JumpEqual(else_label.clone()),
                 indentation: ctxt.indentation,
             });
 
@@ -542,7 +548,7 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<FInstr> {
             ));
             // Jump to the end of the if statement
             instrs.push(FInstr {
-                instr: Instr::Jmp(end_label.clone()),
+                instr: Instr::Jump(end_label.clone()),
                 indentation: ctxt.indentation + 1,
             });
 
@@ -601,7 +607,7 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<FInstr> {
                 },
             ));
             instrs.push(FInstr {
-                instr: Instr::Jmp(start_label.clone()),
+                instr: Instr::Jump(start_label.clone()),
                 indentation: ctxt.indentation,
             });
             instrs.push(FInstr {
@@ -619,7 +625,7 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<FInstr> {
             instrs.append(&mut compile_expr(e, ctxt));
             // Jump to endloop label
             instrs.push(FInstr {
-                instr: Instr::Jmp(ctxt.break_label.to_string()),
+                instr: Instr::Jump(ctxt.break_label.to_string()),
                 indentation: ctxt.indentation,
             });
         }
@@ -708,6 +714,12 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<FInstr> {
                 instr: Instr::Add(Val::Reg(Reg::RSP), Val::Imm(rsp_offset)),
                 indentation: ctxt.indentation,
             });
+        }
+        Expr::Tuple(exprs) => {
+            panic!("TODO");
+        }
+        Expr::Index(addr, offset) => {
+            panic!("TODO");
         }
     }
     return instrs;
@@ -818,13 +830,13 @@ fn get_inequality_instrs(ctxt: &Context) -> Vec<FInstr> {
 
     // Move true into RBX
     instrs.push(FInstr {
-        instr: Instr::Mov(Val::Reg(Reg::RBX), Val::Imm(TRUE_INT)),
+        instr: Instr::Mov(Val::Reg(Reg::RBX), Val::Imm(TRUE_VAL)),
         indentation: ctxt.indentation,
     });
 
     // Move false into RAX
     instrs.push(FInstr {
-        instr: Instr::Mov(Val::Reg(Reg::RAX), Val::Imm(FALSE_INT)),
+        instr: Instr::Mov(Val::Reg(Reg::RAX), Val::Imm(FALSE_VAL)),
         indentation: ctxt.indentation,
     });
 
@@ -872,13 +884,20 @@ fn is_boolean_type_instrs(ctxt: &Context) -> Vec<FInstr> {
         instr: Instr::Mov(Val::Reg(Reg::RBX), Val::Reg(Reg::RAX)),
         indentation: ctxt.indentation,
     });
-    // and rax, 1 = 1 only if rax is a Boolean
+
+    // Clear all bits except the lower two
     instrs.push(FInstr {
-        instr: Instr::And(Val::Reg(Reg::RBX), Val::Imm(1)),
+        instr: Instr::And(Val::Reg(Reg::RBX), Val::Imm(0b11)),
         indentation: ctxt.indentation,
     });
+    // and rax, 0b11 = 0b11 only if rax is a Boolean
     instrs.push(FInstr {
-        instr: Instr::Cmp(Val::Reg(Reg::RBX), Val::Imm(1)),
+        instr: Instr::And(Val::Reg(Reg::RBX), Val::Imm(BOOLEAN_LSB)),
+        indentation: ctxt.indentation,
+    });
+
+    instrs.push(FInstr {
+        instr: Instr::Cmp(Val::Reg(Reg::RBX), Val::Imm(BOOLEAN_LSB)),
         indentation: ctxt.indentation,
     });
     return instrs;
@@ -907,20 +926,62 @@ fn get_same_type_check_instrs(stack_offset: i64, ctxt: &Context) -> Vec<FInstr> 
         indentation: ctxt.indentation,
     });
 
-    // Compare the tag bits of RBX and the value on the stack
+    // These are the possible type comparisons in the current value representation:
+    // 1. number XOR number -> LSB = 0
+    // 2. boolean XOR boolean -> LSB = 0
+    // 3. pointer XOR pointer -> LSB = 0
+    // 4. number XOR boolean -> LSB = 1
+    // 5. number XOR pointer -> LSB = 1
+    // 6. boolean XOR pointer -> LSB = 10
+    // To check if two values A, B have the same type:
+    // Do result = A XOR B.
+    // If LSB(result) != 0, type error (Cases 4, 5)
+    // Else if LSB(result) XOR LSB(a) = 0b11, type error (Case 6)
+    // Else no error (Cases 1, 2, 3)
+
+    // Compare the tag bits of RBX and the value on the stack. Store the result in RBX.
     instrs.push(FInstr {
         instr: Instr::Xor(Val::Reg(Reg::RBX), Val::RegOff(Reg::RSP, stack_offset)),
         indentation: ctxt.indentation,
     });
 
-    // If the tag bits are unequal, jump to the error handler
+    // If the LSB is not 0, then the arguments were different types
     instrs.push(FInstr {
-        instr: Instr::Test(Val::Reg(Reg::RBX), Val::Imm(FALSE_INT)),
+        instr: Instr::Test(Val::Reg(Reg::RBX), Val::Imm(1)),
         indentation: ctxt.indentation,
     });
     instrs.push(FInstr {
-        instr: Instr::JumpNotEqual(INVALID_TYPE_LABEL.to_string()),
+        instr: Instr::JumpNotZero(INVALID_TYPE_LABEL.to_string()),
         indentation: ctxt.indentation,
     });
+
+    // If LSB(rax) XOR LSB(result) = 0b11, type error
+    // Get the LSB of RAX into R11
+    instrs.push(FInstr {
+        instr: Instr::Mov(Val::Reg(Reg::R11), Val::Reg(Reg::RAX)),
+        indentation: (ctxt.indentation),
+    });
+    instrs.push(FInstr {
+        instr: Instr::And(Val::Reg(Reg::R11), Val::Imm(1)),
+        indentation: ctxt.indentation,
+    });
+    // Clear all but the lower two bits of RBX
+    instrs.push(FInstr {
+        instr: Instr::And(Val::Reg(Reg::RBX), Val::Imm(0b11)),
+        indentation: ctxt.indentation,
+    });
+    instrs.push(FInstr {
+        instr: Instr::Xor(Val::Reg(Reg::R11), Val::Reg(Reg::RBX)),
+        indentation: ctxt.indentation,
+    });
+    instrs.push(FInstr {
+        instr: Instr::Cmp(Val::Reg(Reg::R11), Val::Imm(0b11)),
+        indentation: ctxt.indentation,
+    });
+    instrs.push(FInstr {
+        instr: Instr::JumpEqual(INVALID_TYPE_LABEL.to_string()),
+        indentation: ctxt.indentation,
+    });
+
     return instrs;
 }

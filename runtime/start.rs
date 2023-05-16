@@ -34,8 +34,8 @@ pub extern "C" fn snek_print(val: i64) -> i64 {
 // Parse "input" values into their internal representations
 fn parse_input(input: &str) -> i64 {
     match input {
-        "false" => 1,
-        "true" => 3,
+        "false" => 3,
+        "true" => 7,
         _ => match input.parse::<i64>() {
             Ok(num) => {
                 if num < I63_MIN || num > I63_MAX {
@@ -53,8 +53,8 @@ fn parse_input(input: &str) -> i64 {
 // Formats the value in the representation the user expects
 fn format_output(val: i64) -> String {
     match val {
-        1 => "false".to_string(),
-        3 => "true".to_string(),
+        3 => "false".to_string(),
+        7 => "true".to_string(),
         _ => {
             let shifted_val = val >> 1;
             shifted_val.to_string()

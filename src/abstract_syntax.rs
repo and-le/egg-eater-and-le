@@ -23,7 +23,6 @@ pub enum Op2 {
     GreaterEqual,
     Less,
     LessEqual,
-    Index, // (index e1 e2) returns the element at an offset of e2 away from the value of e1
 }
 
 // Expressions
@@ -42,8 +41,9 @@ pub enum Expr {
     Break(Box<Expr>),
     Set(String, Box<Expr>),
     Block(Vec<Expr>),
-    FunCall(String, Vec<Expr>), // function call
-    Tuple(Vec<Expr>),           // tuple of heap-allocated values
+    FunCall(String, Vec<Expr>),  // function call
+    Tuple(Vec<Expr>),            // tuple of heap-allocated values
+    Index(Box<Expr>, Box<Expr>), // (index e1 e2) returns the element at an offset of e2 away from the value of e1
 }
 
 // A function consists of a name, 0 or more named parameters (arguments), and a body

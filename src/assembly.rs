@@ -16,6 +16,8 @@ pub enum Reg {
     RDI, // first function arg, caller-saved
     RSP, // stack pointer
     R10, // scratch register, caller-saved
+    R11, // scratch register, caller-saved
+    R12, // temporary register, callee-saved
     RSI, // second function arg, caller-saved
     R15, // heap pointer
 }
@@ -55,15 +57,15 @@ pub enum Instr {
     Label(String),
 
     // Jumps
-    Jmp(String),
-    JmpEqual(String),
+    Jump(String),
+    JumpEqual(String),
     JumpNotEqual(String),
     JumpNotZero(String),
     JumpOverflow(String),
 
     // Function conventions
     Push(Val),
-    Pop(Val),
+    // Pop(Val),
     Call(String),
     Ret(),
 }
@@ -162,10 +164,10 @@ pub fn instr_to_str(instr: &Instr) -> String {
         }
 
         // Jumps
-        Instr::Jmp(label) => {
+        Instr::Jump(label) => {
             return format!("jmp {label}");
         }
-        Instr::JmpEqual(label) => {
+        Instr::JumpEqual(label) => {
             return format!("je {label}");
         }
         Instr::JumpNotEqual(label) => {
@@ -187,7 +189,7 @@ pub fn instr_to_str(instr: &Instr) -> String {
 
         // Function calling
         Instr::Push(val) => format!("push {}", val_to_str(val)),
-        Instr::Pop(val) => format!("pop {}", val_to_str(val)),
+        // Instr::Pop(val) => format!("pop {}", val_to_str(val)),
         Instr::Call(label) => format!("call {label}"),
         Instr::Ret() => format!("ret"),
     }
@@ -202,6 +204,8 @@ fn val_to_str(val: &Val) -> String {
         Val::Reg(Reg::RDI) => format!("rdi"),
         Val::Reg(Reg::RSP) => format!("rsp"),
         Val::Reg(Reg::R10) => format!("r10"),
+        Val::Reg(Reg::R11) => format!("r11"),
+        Val::Reg(Reg::R12) => format!("r12"),
         Val::Reg(Reg::RSI) => format!("rsi"),
         Val::Reg(Reg::R15) => format!("r15"),
 
