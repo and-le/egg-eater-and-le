@@ -16,3 +16,6 @@ pub const NUM_OVERFLOW_LABEL: &str = "error_numeric_overflow";
 
 pub const ERR_INVALID_TYPE: i64 = 2;
 pub const INVALID_TYPE_LABEL: &str = "error_invalid_type";
+
+pub const ERR_INDEX_OUT_OF_BOUNDS: i64 = 3;
+pub const INDEX_OUT_OF_BOUNDS_LABEL: &str = "error_index_out_of_bounds";

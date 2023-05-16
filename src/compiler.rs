@@ -3,7 +3,7 @@
  * Value representation:
  * Numbers have a 0 as the LSB.
  * Booleans have a 11 as the LSBs.
- * Tuples (pointers) have a 01 as the LSBs.
+ * Tuples (pointers) have a 1 as the LSB.
  */
 use im::HashMap;
 use im::HashSet;
@@ -711,11 +711,24 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<FInstr> {
                 indentation: ctxt.indentation,
             });
         }
+        // Tuples are represented as [tuple size] [first element] [second element] ... [last element]
+        // The return value of a tuple expression is 63-bit address to a word in memory
+        // containing the size of the tuple. The word after this size metadata is the first element of the tuple.
         Expr::Tuple(args) => {
-            // Save the current value of the heap pointer; this is the return value.
+            // Save the current value of the heap pointer on the stack; this is the return value.
             let tup_addr_offset = ctxt.si * WORD_SIZE;
             instrs.push(FInstr {
                 instr: Instr::Mov(Val::RegOff(Reg::RSP, tup_addr_offset), Val::Reg(Reg::R15)),
+                indentation: ctxt.indentation,
+            });
+            // Store the size of the tuple on the heap
+            instrs.push(FInstr {
+                instr: Instr::Mov(Val::RegOff(Reg::R15, 0), Val::Imm(args.len() as i64)),
+                indentation: ctxt.indentation,
+            });
+            // Update the heap pointer
+            instrs.push(FInstr {
+                instr: Instr::Add(Val::Reg(Reg::R15), Val::Imm(WORD_SIZE)),
                 indentation: ctxt.indentation,
             });
             // Incrementally evaluate each argument and store it in the heap
@@ -733,7 +746,7 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<FInstr> {
                 });
                 // Update heap pointer
                 instrs.push(FInstr {
-                    instr: Instr::Add(Val::Reg(Reg::R15), Val::Imm(2 * WORD_SIZE)),
+                    instr: Instr::Add(Val::Reg(Reg::R15), Val::Imm(WORD_SIZE)),
                     indentation: ctxt.indentation,
                 });
             }
@@ -771,6 +784,11 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<FInstr> {
                 instr: Instr::Sub(Val::Reg(Reg::R10), Val::Imm(1)),
                 indentation: ctxt.indentation,
             });
+
+            // TODO:
+            // Get the tuple size at the address
+            // Compare the tuple size with the offset size. If offset size >= tuple size, error
+
             // Add the offset to the address
             instrs.push(FInstr {
                 instr: Instr::Sar(Val::Reg(Reg::RAX), Val::Imm(1)),
@@ -796,6 +814,7 @@ fn compile_error_instrs(indentation: usize) -> Vec<FInstr> {
 
     error_instrs.append(&mut get_error_instrs(ERR_NUM_OVERFLOW, indentation));
     error_instrs.append(&mut get_error_instrs(ERR_INVALID_TYPE, indentation));
+    error_instrs.append(&mut get_error_instrs(ERR_INDEX_OUT_OF_BOUNDS, indentation));
 
     return error_instrs;
 }
@@ -817,6 +836,10 @@ fn get_error_instrs(errcode: i64, indentation: usize) -> Vec<FInstr> {
                 indentation,
             });
         }
+        ERR_INDEX_OUT_OF_BOUNDS => instrs.push(FInstr {
+            instr: Instr::Label(INDEX_OUT_OF_BOUNDS_LABEL.to_string()),
+            indentation,
+        }),
 
         _ => panic!("Unknown error code: {errcode}"),
     }

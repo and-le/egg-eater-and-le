@@ -24,6 +24,7 @@ pub extern "C" fn snek_error(errcode: i64) {
     match errcode {
         1 => eprintln!("an error occurred: numeric overflow"),
         2 => eprintln!("an error occurred: invalid argument (incompatible types)"),
+        3 => eprintln!("an error occurred: index out of bounds"),
         _ => eprintln!("Unknown error code: {errcode}"),
     }
     std::process::exit(1);
@@ -32,7 +33,7 @@ pub extern "C" fn snek_error(errcode: i64) {
 // Prints the formatted representation of the value and returns the original input value.
 #[export_name = "\x01snek_print"]
 pub extern "C" fn snek_print(val: i64) -> i64 {
-    let print_val = format_output(val);
+    let print_val = snek_str(val);
     println!("{print_val}");
     return val;
 }
@@ -56,15 +57,27 @@ fn parse_input(input: &str) -> i64 {
     }
 }
 
-// Formats the value in the representation the user expects
-fn format_output(val: i64) -> String {
-    match val {
-        3 => "false".to_string(),
-        7 => "true".to_string(),
-        _ => {
-            let shifted_val = val >> 1;
-            shifted_val.to_string()
+// Converts the internal representation of the value to a user-facing String value.
+fn snek_str(val: i64) -> String {
+    if val == 7 {
+        "true".to_string()
+    } else if val == 3 {
+        "false".to_string()
+    } else if val % 2 == 0 {
+        (val >> 1).to_string()
+    } else if val == 1 {
+        "nil".to_string()
+    } else if val & 1 == 1 {
+        let mut strings: Vec<String> = Vec::new();
+        let addr = (val - 1) as *const i64;
+        let tuple_size = unsafe { *addr };
+        for i in 1..tuple_size + 1 {
+            let elem = unsafe { *addr.offset(i as isize) };
+            strings.push(snek_str(elem));
         }
+        format!("tuple {}", strings.join(" "))
+    } else {
+        format!("Unknown value: {}", val)
     }
 }
 
