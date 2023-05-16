@@ -89,10 +89,10 @@ pub fn compile_program(prog: &Program, start_label: String) -> CompiledProgram {
         // by using a separate ENV variable for functions and globals.
         let mut new_env = ctxt.env.clone();
         for (index, param) in def.params.iter().enumerate() {
-            // We use *negative* stack index values, starting from -1, so that
-            // functions access their argument values at *positive offsets* from their current location.
-            let arg_offset = -1 * ((index + 1) as i64) * WORD_SIZE;
-            new_env = new_env.update(param.to_string(), arg_offset);
+            // Functions access arguments at positive offsets from the current RSP.
+            // We an extra word of offset for the pushed value of RBX
+            let arg_offset = (index as i64 + 1 + 1) * WORD_SIZE;
+            new_env = new_env.update(param.to_string(), -arg_offset);
         }
         let new_ctxt = Context {
             env: &new_env,
@@ -109,7 +109,7 @@ pub fn compile_program(prog: &Program, start_label: String) -> CompiledProgram {
 
         // Save RBX
         fun_instrs.push(FInstr {
-            instr: Instr::Mov(Val::Reg(Reg::R10), Val::Reg(Reg::RBX)),
+            instr: Instr::Push(Val::Reg(Reg::RBX)),
             indentation: indentation + 1,
         });
 
@@ -118,7 +118,7 @@ pub fn compile_program(prog: &Program, start_label: String) -> CompiledProgram {
 
         // Restore RBX
         fun_instrs.push(FInstr {
-            instr: Instr::Mov(Val::Reg(Reg::RBX), Val::Reg(Reg::R10)),
+            instr: Instr::Pop(Val::Reg(Reg::RBX)),
             indentation: indentation + 1,
         });
 

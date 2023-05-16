@@ -14,11 +14,11 @@ pub enum Reg {
     RAX, // return value
     RBX, // temporary, callee-saved
     RDI, // first function arg, caller-saved
+    RSI, // second function arg, caller-saved
     RSP, // stack pointer
     R10, // scratch register, caller-saved
     R11, // scratch register, caller-saved
     R12, // temporary register, callee-saved
-    RSI, // second function arg, caller-saved
     R15, // heap pointer
 }
 
@@ -65,7 +65,7 @@ pub enum Instr {
 
     // Function conventions
     Push(Val),
-    // Pop(Val),
+    Pop(Val),
     Call(String),
     Ret(),
 }
@@ -189,7 +189,7 @@ pub fn instr_to_str(instr: &Instr) -> String {
 
         // Function calling
         Instr::Push(val) => format!("push {}", val_to_str(val)),
-        // Instr::Pop(val) => format!("pop {}", val_to_str(val)),
+        Instr::Pop(val) => format!("pop {}", val_to_str(val)),
         Instr::Call(label) => format!("call {label}"),
         Instr::Ret() => format!("ret"),
     }
