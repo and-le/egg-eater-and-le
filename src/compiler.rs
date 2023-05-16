@@ -748,7 +748,43 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<FInstr> {
             });
         }
         Expr::Index(addr, offset) => {
-            panic!("TODO");
+            instrs.append(&mut compile_expr(addr, ctxt));
+            // Save the address on the stack
+            let addr_offset = ctxt.si * WORD_SIZE;
+            instrs.push(FInstr {
+                instr: Instr::Mov(Val::RegOff(Reg::RSP, addr_offset), Val::Reg(Reg::RAX)),
+                indentation: ctxt.indentation,
+            });
+            instrs.append(&mut compile_expr(
+                offset,
+                &Context {
+                    si: ctxt.si + 1,
+                    ..*ctxt
+                },
+            ));
+            // Unmask the address by clearing the LSB
+            instrs.push(FInstr {
+                instr: Instr::Mov(Val::Reg(Reg::R10), Val::RegOff(Reg::RSP, addr_offset)),
+                indentation: ctxt.indentation,
+            });
+            instrs.push(FInstr {
+                instr: Instr::Sub(Val::Reg(Reg::R10), Val::Imm(1)),
+                indentation: ctxt.indentation,
+            });
+            // Add the offset to the address
+            instrs.push(FInstr {
+                instr: Instr::Sar(Val::Reg(Reg::RAX), Val::Imm(1)),
+                indentation: ctxt.indentation,
+            });
+            instrs.push(FInstr {
+                instr: Instr::Add(Val::Reg(Reg::R10), Val::Reg(Reg::RAX)),
+                indentation: ctxt.indentation,
+            });
+            // Load the value from the heap
+            instrs.push(FInstr {
+                instr: Instr::Mov(Val::Reg(Reg::RAX), Val::RegOff(Reg::R10, 0)),
+                indentation: ctxt.indentation,
+            });
         }
     }
     return instrs;

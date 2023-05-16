@@ -15,6 +15,7 @@ pub enum Reg {
     RBX, // temporary, callee-saved
     RDI, // first function arg, caller-saved
     RSI, // second function arg, caller-saved
+
     RSP, // stack pointer
     R10, // scratch register, caller-saved
     R11, // scratch register, caller-saved
