@@ -1,5 +1,17 @@
 mod infra;
 
+// success_tests! {
+
+// }
+
+// runtime_error_tests! {
+
+// }
+
+// static_error_tests! {
+
+// }
+
 success_tests! {
     // Number and Boolean Literals
     {

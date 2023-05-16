@@ -1,15 +1,21 @@
+/**
+ * Rust functions that are linked at runtime with the compiler
+ */
 use std::env;
 
 const I63_MIN: i64 = -4611686018427387904;
 const I63_MAX: i64 = 4611686018427387903;
 
+// The \x01 used below is an undocumented feature of LLVM that ensures
+// it does not add an underscore in front of the name.
+// Courtesy of Max New (https://maxsnew.com/teaching/eecs-483-fa22/hw_adder_assignment.html)
+
 #[link(name = "our_code")]
 extern "C" {
-    // The \x01 here is an undocumented feature of LLVM that ensures
-    // it does not add an underscore in front of the name.
-    // Courtesy of Max New (https://maxsnew.com/teaching/eecs-483-fa22/hw_adder_assignment.html)
+    // input is the value provided by the "input" operator. Its value is in RDI.
+    // heap is the starting address of the heap. Its value is in RSI.
     #[link_name = "\x01our_code_starts_here"]
-    fn our_code_starts_here(input: i64) -> i64;
+    fn our_code_starts_here(input: i64, heap: *mut i64) -> i64;
 }
 
 // Prints an error message to standard error and then exits the process with a nonzero exit code
@@ -64,9 +70,16 @@ fn format_output(val: i64) -> String {
 
 fn main() {
     let args: Vec<String> = env::args().collect();
+    // The default value for the "input" operator is false
     let input = if args.len() == 2 { &args[1] } else { "false" };
     let input = parse_input(&input);
 
-    let output: i64 = unsafe { our_code_starts_here(input) };
-    println!("{}", format_output(output));
+    // Allocate a large chunk of memory for the heap
+    let mut heap_mem = Vec::<i64>::with_capacity(1000000);
+    let buffer: *mut i64 = heap_mem.as_mut_ptr();
+
+    // Run the compiled code
+    let output: i64 = unsafe { our_code_starts_here(input, buffer) };
+    // Print the output
+    let _ = snek_print(output);
 }
