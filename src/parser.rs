@@ -195,6 +195,21 @@ fn parse_sexpr(sexpr: &Sexp) -> Expr {
             // Break
             [Sexp::Atom(S(op)), e] if op == "break" => Expr::Break(Box::new(parse_sexpr(e))),
 
+            // Tuple
+            [Sexp::Atom(S(keyword)), arg1, remaining_args @ ..] if keyword == "tuple" => {
+                let mut args = Vec::new();
+                args.push(parse_sexpr(arg1));
+                for arg in remaining_args.iter() {
+                    args.push(parse_sexpr(arg));
+                }
+                Expr::Tuple(args)
+            }
+
+            // Index
+            [Sexp::Atom(S(keyword)), e1, e2] if keyword == "index" => {
+                Expr::Index(Box::new(parse_sexpr(e1)), Box::new(parse_sexpr(e2)))
+            }
+
             // Function call
             [Sexp::Atom(S(funname)), args @ ..] => {
                 if reserved_strings.contains(funname) {
