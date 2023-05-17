@@ -777,30 +777,52 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<FInstr> {
             ));
             // Unmask the address by clearing the LSB
             instrs.push(FInstr {
-                instr: Instr::Mov(Val::Reg(Reg::R10), Val::RegOff(Reg::RSP, addr_offset)),
+                instr: Instr::Mov(Val::Reg(Reg::R12), Val::RegOff(Reg::RSP, addr_offset)),
                 indentation: ctxt.indentation,
             });
             instrs.push(FInstr {
-                instr: Instr::Sub(Val::Reg(Reg::R10), Val::Imm(1)),
+                instr: Instr::Sub(Val::Reg(Reg::R12), Val::Imm(1)),
                 indentation: ctxt.indentation,
             });
 
-            // TODO:
             // Get the tuple size at the address
-            // Compare the tuple size with the offset size. If offset size >= tuple size, error
+            instrs.push(FInstr {
+                instr: Instr::Mov(Val::Reg(Reg::R13), Val::RegOff(Reg::R12, 0)),
+                indentation: ctxt.indentation,
+            });
+            // If offset size >= tuple size, jump to error
+            instrs.push(FInstr {
+                instr: Instr::Cmp(Val::Reg(Reg::R13), Val::Reg(Reg::RAX)),
+                indentation: ctxt.indentation,
+            });
+            instrs.push(FInstr {
+                instr: Instr::JumpGreaterEqual(INDEX_OUT_OF_BOUNDS_LABEL.to_string()),
+                indentation: ctxt.indentation,
+            });
 
-            // Add the offset to the address
+            // Convert the offset to its actual value
             instrs.push(FInstr {
                 instr: Instr::Sar(Val::Reg(Reg::RAX), Val::Imm(1)),
                 indentation: ctxt.indentation,
             });
+            // Add 1 because the address is currently at the tuple size, not the first element.
             instrs.push(FInstr {
-                instr: Instr::Add(Val::Reg(Reg::R10), Val::Reg(Reg::RAX)),
+                instr: Instr::Add(Val::Reg(Reg::RAX), Val::Imm(1)),
+                indentation: ctxt.indentation,
+            });
+            // Multiply the offset by the word size
+            instrs.push(FInstr {
+                instr: Instr::Mul(Val::Reg(Reg::RAX), Val::Imm(WORD_SIZE)),
+                indentation: ctxt.indentation,
+            });
+            // Add the offset to the base address
+            instrs.push(FInstr {
+                instr: Instr::Add(Val::Reg(Reg::R12), Val::Reg(Reg::RAX)),
                 indentation: ctxt.indentation,
             });
             // Load the value from the heap
             instrs.push(FInstr {
-                instr: Instr::Mov(Val::Reg(Reg::RAX), Val::RegOff(Reg::R10, 0)),
+                instr: Instr::Mov(Val::Reg(Reg::RAX), Val::RegOff(Reg::R12, 0)),
                 indentation: ctxt.indentation,
             });
         }
@@ -1046,11 +1068,11 @@ fn get_same_type_check_instrs(stack_offset: i64, ctxt: &Context) -> Vec<FInstr> 
     // If LSB(rax) XOR LSB(result) = 0b11, type error
     // Get the LSB of RAX into R11
     instrs.push(FInstr {
-        instr: Instr::Mov(Val::Reg(Reg::R11), Val::Reg(Reg::RAX)),
+        instr: Instr::Mov(Val::Reg(Reg::R13), Val::Reg(Reg::RAX)),
         indentation: (ctxt.indentation),
     });
     instrs.push(FInstr {
-        instr: Instr::And(Val::Reg(Reg::R11), Val::Imm(1)),
+        instr: Instr::And(Val::Reg(Reg::R13), Val::Imm(1)),
         indentation: ctxt.indentation,
     });
     // Clear all but the lower two bits of RBX
@@ -1059,11 +1081,11 @@ fn get_same_type_check_instrs(stack_offset: i64, ctxt: &Context) -> Vec<FInstr> 
         indentation: ctxt.indentation,
     });
     instrs.push(FInstr {
-        instr: Instr::Xor(Val::Reg(Reg::R11), Val::Reg(Reg::RBX)),
+        instr: Instr::Xor(Val::Reg(Reg::R13), Val::Reg(Reg::RBX)),
         indentation: ctxt.indentation,
     });
     instrs.push(FInstr {
-        instr: Instr::Cmp(Val::Reg(Reg::R11), Val::Imm(0b11)),
+        instr: Instr::Cmp(Val::Reg(Reg::R13), Val::Imm(0b11)),
         indentation: ctxt.indentation,
     });
     instrs.push(FInstr {
