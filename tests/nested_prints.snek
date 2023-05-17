@@ -1,0 +1,7 @@
+(fun (increment x)
+    (add1 x)
+)
+
+(
+    increment (print (increment (print (increment (print (increment input))))))
+)

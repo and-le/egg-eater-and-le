@@ -1,0 +1,5 @@
+(fun (identity a)
+    a
+)
+
+(identity input)
