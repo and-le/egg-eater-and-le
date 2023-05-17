@@ -125,11 +125,24 @@ pub fn compile_program(prog: &Program, start_label: String) -> CompiledProgram {
         instr: Instr::Label(start_label.to_string()),
         indentation,
     });
+
     // Move the heap start address into R15
     main_instrs.push(FInstr {
         instr: Instr::Mov(Val::Reg(Reg::R15), Val::Reg(Reg::RSI)),
         indentation: indentation + 1,
     });
+
+    // Move the heap start address into R13
+    main_instrs.push(FInstr {
+        instr: Instr::Mov(Val::Reg(Reg::R13), Val::Reg(Reg::RSI)),
+        indentation: indentation + 1,
+    });
+    // Move the heap end address into R14
+    main_instrs.push(FInstr {
+        instr: Instr::Mov(Val::Reg(Reg::R14), Val::Reg(Reg::RDX)),
+        indentation: indentation + 1,
+    });
+
     // Main body
     main_instrs.append(&mut compile_expr(
         &prog.main,
@@ -176,6 +189,10 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<FInstr> {
         }),
         Expr::Boolean(true) => instrs.push(FInstr {
             instr: Instr::Mov(Val::Reg(Reg::RAX), Val::Imm(TRUE_VAL)),
+            indentation: ctxt.indentation,
+        }),
+        Expr::Nil => instrs.push(FInstr {
+            instr: Instr::Mov(Val::Reg(Reg::RAX), Val::Imm(NIL_VAL)),
             indentation: ctxt.indentation,
         }),
 
@@ -767,7 +784,9 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<FInstr> {
         Expr::Index(addr, offset) => {
             instrs.append(&mut compile_expr(addr, ctxt));
             // If the address expression did not actually evaluate to an address, error
-            instrs.append(&mut is_tuple_with_error(ctxt));
+            instrs.append(&mut is_heap_address_with_error(ctxt));
+
+            // If the address is out of bounds of the heap, error
 
             // Save the address on the stack
             let addr_offset = ctxt.si * WORD_SIZE;
@@ -784,26 +803,30 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<FInstr> {
                 },
             ));
             // If the offset expression did not actually evaluate to a number, error.
-            instrs.append(&mut is_number_with_error(ctxt));
+            instrs.append(&mut is_number(ctxt));
+            instrs.push(FInstr {
+                instr: Instr::JumpNotEqual(NOT_INDEX_OFFSET_LABEL.to_string()),
+                indentation: ctxt.indentation,
+            });
 
             // Unmask the address by clearing the LSB
             instrs.push(FInstr {
-                instr: Instr::Mov(Val::Reg(Reg::R12), Val::RegOff(Reg::RSP, addr_offset)),
+                instr: Instr::Mov(Val::Reg(Reg::RBX), Val::RegOff(Reg::RSP, addr_offset)),
                 indentation: ctxt.indentation,
             });
             instrs.push(FInstr {
-                instr: Instr::Sub(Val::Reg(Reg::R12), Val::Imm(1)),
+                instr: Instr::Sub(Val::Reg(Reg::RBX), Val::Imm(1)),
                 indentation: ctxt.indentation,
             });
 
             // Get the tuple size at the address
             instrs.push(FInstr {
-                instr: Instr::Mov(Val::Reg(Reg::R13), Val::RegOff(Reg::R12, 0)),
+                instr: Instr::Mov(Val::Reg(Reg::R12), Val::RegOff(Reg::RBX, 0)),
                 indentation: ctxt.indentation,
             });
             // If offset size >= tuple size, jump to error
             instrs.push(FInstr {
-                instr: Instr::Cmp(Val::Reg(Reg::RAX), Val::Reg(Reg::R13)),
+                instr: Instr::Cmp(Val::Reg(Reg::RAX), Val::Reg(Reg::R12)),
                 indentation: ctxt.indentation,
             });
             instrs.push(FInstr {
@@ -837,12 +860,12 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<FInstr> {
             });
             // Add the offset to the base address
             instrs.push(FInstr {
-                instr: Instr::Add(Val::Reg(Reg::R12), Val::Reg(Reg::RAX)),
+                instr: Instr::Add(Val::Reg(Reg::RBX), Val::Reg(Reg::RAX)),
                 indentation: ctxt.indentation,
             });
             // Load the value from the heap
             instrs.push(FInstr {
-                instr: Instr::Mov(Val::Reg(Reg::RAX), Val::RegOff(Reg::R12, 0)),
+                instr: Instr::Mov(Val::Reg(Reg::RAX), Val::RegOff(Reg::RBX, 0)),
                 indentation: ctxt.indentation,
             });
         }
@@ -857,6 +880,8 @@ fn compile_error_instrs(indentation: usize) -> Vec<FInstr> {
     error_instrs.append(&mut get_error_instrs(ERR_NUM_OVERFLOW, indentation));
     error_instrs.append(&mut get_error_instrs(ERR_INVALID_TYPE, indentation));
     error_instrs.append(&mut get_error_instrs(ERR_INDEX_OUT_OF_BOUNDS, indentation));
+    error_instrs.append(&mut get_error_instrs(ERR_NOT_HEAP_ADDRESS, indentation));
+    error_instrs.append(&mut get_error_instrs(ERR_NOT_INDEX_OFFSET, indentation));
 
     return error_instrs;
 }
@@ -880,6 +905,14 @@ fn get_error_instrs(errcode: i64, indentation: usize) -> Vec<FInstr> {
         }
         ERR_INDEX_OUT_OF_BOUNDS => instrs.push(FInstr {
             instr: Instr::Label(INDEX_OUT_OF_BOUNDS_LABEL.to_string()),
+            indentation,
+        }),
+        ERR_NOT_HEAP_ADDRESS => instrs.push(FInstr {
+            instr: Instr::Label(NOT_HEAP_ADDRESS_LABEL.to_string()),
+            indentation,
+        }),
+        ERR_NOT_INDEX_OFFSET => instrs.push(FInstr {
+            instr: Instr::Label(NOT_INDEX_OFFSET_LABEL.to_string()),
             indentation,
         }),
 
@@ -1045,9 +1078,9 @@ fn is_boolean(ctxt: &Context) -> Vec<FInstr> {
     return instrs;
 }
 
-// Returns a vector of instructions that checks whether the current value in RAX is a tuple pointer.
+// Returns a vector of instructions that checks whether the current value in RAX is a heap address.
 // Uses RBX for intermediate computation, and does a CMP that sets condition codes.
-fn is_tuple(ctxt: &Context) -> Vec<FInstr> {
+fn is_heap_address(ctxt: &Context) -> Vec<FInstr> {
     let mut instrs = Vec::new();
     instrs.push(FInstr {
         instr: Instr::Mov(Val::Reg(Reg::RBX), Val::Reg(Reg::RAX)),
@@ -1065,12 +1098,12 @@ fn is_tuple(ctxt: &Context) -> Vec<FInstr> {
 }
 
 // Returns a vector of instructions that checks whether the current value in RAX
-// is a tuple pointer. Throws an error if this value is not a tuple pointer, otherwise continues.
-fn is_tuple_with_error(ctxt: &Context) -> Vec<FInstr> {
+// is a heap address. Throws an error if not, otherwise continues.
+fn is_heap_address_with_error(ctxt: &Context) -> Vec<FInstr> {
     let mut instrs = Vec::new();
-    instrs.append(&mut is_tuple(ctxt));
+    instrs.append(&mut is_heap_address(ctxt));
     instrs.push(FInstr {
-        instr: Instr::JumpNotEqual(INVALID_TYPE_LABEL.to_string()),
+        instr: Instr::JumpNotEqual(NOT_HEAP_ADDRESS_LABEL.to_string()),
         indentation: ctxt.indentation,
     });
     return instrs;
@@ -1119,11 +1152,11 @@ fn are_same_types(stack_offset: i64, ctxt: &Context) -> Vec<FInstr> {
     // If LSB(rax) XOR LSB(result) = 0b11, type error
     // Get the LSB of RAX into R11
     instrs.push(FInstr {
-        instr: Instr::Mov(Val::Reg(Reg::R13), Val::Reg(Reg::RAX)),
+        instr: Instr::Mov(Val::Reg(Reg::R12), Val::Reg(Reg::RAX)),
         indentation: (ctxt.indentation),
     });
     instrs.push(FInstr {
-        instr: Instr::And(Val::Reg(Reg::R13), Val::Imm(1)),
+        instr: Instr::And(Val::Reg(Reg::R12), Val::Imm(1)),
         indentation: ctxt.indentation,
     });
     // Clear all but the lower two bits of RBX
@@ -1132,11 +1165,11 @@ fn are_same_types(stack_offset: i64, ctxt: &Context) -> Vec<FInstr> {
         indentation: ctxt.indentation,
     });
     instrs.push(FInstr {
-        instr: Instr::Xor(Val::Reg(Reg::R13), Val::Reg(Reg::RBX)),
+        instr: Instr::Xor(Val::Reg(Reg::R12), Val::Reg(Reg::RBX)),
         indentation: ctxt.indentation,
     });
     instrs.push(FInstr {
-        instr: Instr::Cmp(Val::Reg(Reg::R13), Val::Imm(0b11)),
+        instr: Instr::Cmp(Val::Reg(Reg::R12), Val::Imm(0b11)),
         indentation: ctxt.indentation,
     });
     instrs.push(FInstr {

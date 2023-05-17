@@ -15,12 +15,14 @@ pub enum Reg {
 
     RDI, // first function arg, caller-saved
     RSI, // second function arg, caller-saved
+    RDX, // third function arg, caller-saved
 
     RSP, // stack pointer, callee-saved
 
     RBX, // local variable, callee-saved
     R12, // local variable, callee-saved
     R13, // local variable, callee-saved
+    R14, // local variable, callee-saved
 
     R15, // heap pointer, callee-saved
 }
@@ -214,9 +216,11 @@ fn val_to_str(val: &Val) -> String {
         Val::Reg(Reg::RBX) => format!("rbx"),
         Val::Reg(Reg::RDI) => format!("rdi"),
         Val::Reg(Reg::RSI) => format!("rsi"),
+        Val::Reg(Reg::RDX) => format!("rdx"),
         Val::Reg(Reg::RSP) => format!("rsp"),
         Val::Reg(Reg::R12) => format!("r12"),
         Val::Reg(Reg::R13) => format!("r13"),
+        Val::Reg(Reg::R14) => format!("r14"),
         Val::Reg(Reg::R15) => format!("r15"),
 
         Val::RegOff(Reg::RAX, offset) => {
@@ -231,6 +235,13 @@ fn val_to_str(val: &Val) -> String {
                 format!("[rsp - {offset}]")
             } else {
                 format!("[rsp + {}]", -1 * offset)
+            }
+        }
+        Val::RegOff(Reg::RBX, offset) => {
+            if *offset > 0 {
+                format!("[rbx - {offset}]")
+            } else {
+                format!("[rbx + {}]", -1 * offset)
             }
         }
         Val::RegOff(Reg::R12, offset) => {

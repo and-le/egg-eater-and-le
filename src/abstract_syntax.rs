@@ -32,6 +32,7 @@ pub enum Expr {
     // The LSB is 0 if the value represents a Number; 1 if the value represents a Boolean.
     Number(i64),
     Boolean(bool),
+    Nil,
     Id(String),
     Let(Vec<(String, Expr)>, Box<Expr>),
     UnOp(Op1, Box<Expr>),

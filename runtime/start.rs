@@ -13,9 +13,10 @@ const I63_MAX: i64 = 4611686018427387903;
 #[link(name = "our_code")]
 extern "C" {
     // input is the value provided by the "input" operator. Its value is in RDI.
-    // heap is the starting address of the heap. Its value is in RSI.
+    // heap_start is the starting address of the heap. Its value is in RSI.
+    // heap_end is the end address of the heap. Its value is in RDX.
     #[link_name = "\x01our_code_starts_here"]
-    fn our_code_starts_here(input: i64, heap: *mut i64) -> i64;
+    fn our_code_starts_here(input: i64, heap_start: *mut i64, heap_end: *mut i64) -> i64;
 }
 
 // Prints an error message to standard error and then exits the process with a nonzero exit code
@@ -88,11 +89,13 @@ fn main() {
     let input = parse_input(&input);
 
     // Allocate a large chunk of memory for the heap
+    const HEAP_CAPACITY: usize = 1000000;
     let mut heap_mem = Vec::<i64>::with_capacity(1000000);
-    let buffer: *mut i64 = heap_mem.as_mut_ptr();
+    let heap_start: *mut i64 = heap_mem.as_mut_ptr();
+    let heap_end: *mut i64 = unsafe { heap_start.offset(HEAP_CAPACITY as isize) };
 
     // Run the compiled code
-    let output: i64 = unsafe { our_code_starts_here(input, buffer) };
+    let output: i64 = unsafe { our_code_starts_here(input, heap_start, heap_end) };
     // Print the output
     let _ = snek_print(output);
 }

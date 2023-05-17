@@ -61,7 +61,7 @@ pub fn parse_program(sexpr: &Sexp) -> Program {
 fn parse_sexpr(sexpr: &Sexp) -> Expr {
     let reserved_strings: HashSet<String> = [
         "add1", "sub1", "let", "if", "block", "loop", "break", "set!", "isnum", "isbool", "print",
-        "+", "-", "*", "<", "<=", ">=", ">", "=",
+        "+", "-", "*", "<", "<=", ">=", ">", "=", "index", "tuple", "nil",
     ]
     .iter()
     .cloned()
@@ -78,6 +78,7 @@ fn parse_sexpr(sexpr: &Sexp) -> Expr {
         // Boolean
         Sexp::Atom(S(name)) if name == "false" => Expr::Boolean(false),
         Sexp::Atom(S(name)) if name == "true" => Expr::Boolean(true),
+        Sexp::Atom(S(name)) if name == "nil" => Expr::Nil,
 
         // Identifier
         Sexp::Atom(S(name)) => {
@@ -247,7 +248,8 @@ fn parse_bindings(sexpr: &Sexp) -> Vec<(String, Expr)> {
 fn parse_bind(sexpr: &Sexp) -> (String, Expr) {
     let reserved_strings: HashSet<String> = [
         "add1", "sub1", "let", "if", "block", "loop", "break", "set!", "isnum", "isbool", "true",
-        "false", "input", "print", "+", "-", "*", "<", "<=", ">=", ">", "=",
+        "false", "input", "print", "+", "-", "*", "<", "<=", ">=", ">", "=", "index", "tuple",
+        "nil",
     ]
     .iter()
     .cloned()
@@ -286,7 +288,8 @@ fn is_definition(sexpr: &Sexp) -> bool {
 fn parse_param(sexpr: &Sexp) -> String {
     let reserved_strings: HashSet<String> = [
         "add1", "sub1", "let", "if", "block", "loop", "break", "set!", "isnum", "isbool", "true",
-        "false", "input", "print", "+", "-", "*", "<", "<=", ">=", ">", "=",
+        "false", "input", "print", "+", "-", "*", "<", "<=", ">=", ">", "=", "index", "tuple",
+        "nil",
     ]
     .iter()
     .cloned()
@@ -306,7 +309,8 @@ fn parse_param(sexpr: &Sexp) -> String {
 fn parse_definition(s: &Sexp) -> Definition {
     let reserved_strings: HashSet<String> = [
         "add1", "sub1", "let", "if", "block", "loop", "break", "set!", "isnum", "isbool", "true",
-        "false", "input", "print", "+", "-", "*", "<", "<=", ">=", ">", "=",
+        "false", "input", "print", "+", "-", "*", "<", "<=", ">=", ">", "=", "index", "tuple",
+        "nil",
     ]
     .iter()
     .cloned()
