@@ -1,6 +1,0 @@
-(block
-    (print (+ (+ 10 20) 30))
-    (print input)
-    (print (+ (+ 100 200) 300))
-    (print input)
-)

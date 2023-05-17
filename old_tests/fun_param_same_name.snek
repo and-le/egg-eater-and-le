@@ -1,0 +1,5 @@
+(fun (same same)
+    (add1 same)
+)
+
+(same 10)
