@@ -147,6 +147,23 @@ pub fn compile_program(prog: &Program, start_label: String) -> CompiledProgram {
         indentation,
     });
 
+    // Move the heap start address into R15
+    main_instrs.push(FInstr {
+        instr: Instr::Mov(Val::Reg(Reg::R15), Val::Reg(Reg::RSI)),
+        indentation: indentation + 1,
+    });
+
+    // Move the heap start address into R13
+    main_instrs.push(FInstr {
+        instr: Instr::Mov(Val::Reg(Reg::R13), Val::Reg(Reg::RSI)),
+        indentation: indentation + 1,
+    });
+    // Move the heap end address into R14
+    main_instrs.push(FInstr {
+        instr: Instr::Mov(Val::Reg(Reg::R14), Val::Reg(Reg::RDX)),
+        indentation: indentation + 1,
+    });
+
     // Subtract a word from stack pointer to maintain alignment
     main_instrs.push(FInstr {
         instr: Instr::Sub(Val::Reg(Reg::RSP), Val::Imm(WORD_SIZE)),
@@ -163,23 +180,6 @@ pub fn compile_program(prog: &Program, start_label: String) -> CompiledProgram {
     main_instrs.push(FInstr {
         instr: Instr::Mov(Val::Reg(Reg::RBP), Val::Reg(Reg::RSP)),
         indentation: ctxt.indentation + 1,
-    });
-
-    // Move the heap start address into R15
-    main_instrs.push(FInstr {
-        instr: Instr::Mov(Val::Reg(Reg::R15), Val::Reg(Reg::RSI)),
-        indentation: indentation + 1,
-    });
-
-    // Move the heap start address into R13
-    main_instrs.push(FInstr {
-        instr: Instr::Mov(Val::Reg(Reg::R13), Val::Reg(Reg::RSI)),
-        indentation: indentation + 1,
-    });
-    // Move the heap end address into R14
-    main_instrs.push(FInstr {
-        instr: Instr::Mov(Val::Reg(Reg::R14), Val::Reg(Reg::RDX)),
-        indentation: indentation + 1,
     });
 
     // Main body
@@ -326,17 +326,39 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<FInstr> {
             instrs.append(&mut compile_expr(e, ctxt));
 
             // Allocate an extra word of space if needed to keep stack pointer aligned
-            let alignment_offset: i64;
-            if (ctxt.si + 1) % 2 != 0 {
-                alignment_offset = WORD_SIZE;
+            let num_saved_words = 3;
+            let stack_index: i64;
+            let alloc_extra_word = (ctxt.si + num_saved_words) % 2 == 1;
+            if alloc_extra_word {
+                stack_index = ctxt.si + 1;
             } else {
-                alignment_offset = 0;
+                stack_index = ctxt.si;
             }
 
-            // Save current value in RDI on stack
-            let rdi_offset = ctxt.si * WORD_SIZE + alignment_offset;
+            // Save RDI on stack
             instrs.push(FInstr {
-                instr: Instr::Mov(Val::RegOff(Reg::RBP, rdi_offset), Val::Reg(Reg::RDI)),
+                instr: Instr::Mov(
+                    Val::RegOff(Reg::RBP, stack_index * WORD_SIZE),
+                    Val::Reg(Reg::RDI),
+                ),
+                indentation: ctxt.indentation,
+            });
+
+            // Save RSI on stack
+            instrs.push(FInstr {
+                instr: Instr::Mov(
+                    Val::RegOff(Reg::RBP, (stack_index + 1) * WORD_SIZE),
+                    Val::Reg(Reg::RSI),
+                ),
+                indentation: ctxt.indentation,
+            });
+
+            // Save RDX on stack
+            instrs.push(FInstr {
+                instr: Instr::Mov(
+                    Val::RegOff(Reg::RBP, (stack_index + 2) * WORD_SIZE),
+                    Val::Reg(Reg::RDX),
+                ),
                 indentation: ctxt.indentation,
             });
 
@@ -346,8 +368,7 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<FInstr> {
                 indentation: ctxt.indentation,
             });
 
-            let rsp_offset = (ctxt.si * WORD_SIZE) + alignment_offset;
-
+            let rsp_offset = (stack_index + num_saved_words - 1) * WORD_SIZE;
             // Move stack pointer
             instrs.push(FInstr {
                 instr: Instr::Sub(Val::Reg(Reg::RSP), Val::Imm(rsp_offset)),
@@ -366,11 +387,31 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<FInstr> {
                 indentation: ctxt.indentation,
             });
 
-            // Restore saved value of RDI
+            // Restore RDI
             instrs.push(FInstr {
-                instr: Instr::Mov(Val::Reg(Reg::RDI), Val::RegOff(Reg::RBP, rdi_offset)),
+                instr: Instr::Mov(
+                    Val::Reg(Reg::RDI),
+                    Val::RegOff(Reg::RBP, stack_index * WORD_SIZE),
+                ),
                 indentation: ctxt.indentation,
             });
+            // Restore RSI
+            instrs.push(FInstr {
+                instr: Instr::Mov(
+                    Val::Reg(Reg::RSI),
+                    Val::RegOff(Reg::RBP, (stack_index + 1) * WORD_SIZE),
+                ),
+                indentation: ctxt.indentation,
+            });
+            // Restore RDX
+            instrs.push(FInstr {
+                instr: Instr::Mov(
+                    Val::Reg(Reg::RDX),
+                    Val::RegOff(Reg::RBP, (stack_index + 2) * WORD_SIZE),
+                ),
+                indentation: ctxt.indentation,
+            });
+
             // The return value of print function is carried over from evaluating the expression
         }
 
@@ -712,18 +753,38 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<FInstr> {
             }
 
             // Allocate an extra word of space if needed to keep RSP 16-byte aligned
-            let alignment_offset: i64;
-            if (ctxt.si + args.len() as i64 + 1) % 2 != 0 {
-                alignment_offset = WORD_SIZE;
+            let stack_index;
+            let num_saved_words = 3;
+            let allocate_extra_word = (ctxt.si + args.len() as i64 + num_saved_words) % 2 == 1;
+            if allocate_extra_word {
+                stack_index = ctxt.si + 1;
             } else {
-                alignment_offset = 0;
+                stack_index = ctxt.si;
             }
 
             // Save RDI on stack
             instrs.push(FInstr {
                 instr: Instr::Mov(
-                    Val::RegOff(Reg::RBP, (ctxt.si * WORD_SIZE) + alignment_offset),
+                    Val::RegOff(Reg::RBP, stack_index * WORD_SIZE),
                     Val::Reg(Reg::RDI),
+                ),
+                indentation: ctxt.indentation,
+            });
+
+            // Save RSI on stack
+            instrs.push(FInstr {
+                instr: Instr::Mov(
+                    Val::RegOff(Reg::RBP, (stack_index + 1) * WORD_SIZE),
+                    Val::Reg(Reg::RSI),
+                ),
+                indentation: ctxt.indentation,
+            });
+
+            // Save RDX on stack
+            instrs.push(FInstr {
+                instr: Instr::Mov(
+                    Val::RegOff(Reg::RBP, (stack_index + 2) * WORD_SIZE),
+                    Val::Reg(Reg::RDX),
                 ),
                 indentation: ctxt.indentation,
             });
@@ -731,10 +792,7 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<FInstr> {
             // Evaluate the argument expressions in reverse order and store the results
             // at decreasing memory addresses on the stack.
             for (index, arg) in args.iter().rev().enumerate() {
-                let mut arg_si = ctxt.si + 1 + index as i64;
-                if alignment_offset > 0 {
-                    arg_si += 1;
-                }
+                let arg_si = stack_index + num_saved_words + index as i64;
                 let arg_offset = arg_si * WORD_SIZE;
 
                 let mut arg_is = compile_expr(
@@ -753,7 +811,7 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<FInstr> {
             }
 
             // Move the stack pointer to the correct location
-            let rsp_offset = ((ctxt.si + args.len() as i64) * WORD_SIZE) + alignment_offset;
+            let rsp_offset = (stack_index + (num_saved_words - 1) + args.len() as i64) * WORD_SIZE;
             instrs.push(FInstr {
                 instr: Instr::Sub(Val::Reg(Reg::RSP), Val::Imm(rsp_offset)),
                 indentation: ctxt.indentation,
@@ -769,7 +827,25 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<FInstr> {
             instrs.push(FInstr {
                 instr: Instr::Mov(
                     Val::Reg(Reg::RDI),
-                    Val::RegOff(Reg::RBP, (ctxt.si * WORD_SIZE) + alignment_offset),
+                    Val::RegOff(Reg::RBP, stack_index * WORD_SIZE),
+                ),
+                indentation: ctxt.indentation,
+            });
+
+            // Restore RSI
+            instrs.push(FInstr {
+                instr: Instr::Mov(
+                    Val::Reg(Reg::RSI),
+                    Val::RegOff(Reg::RBP, (stack_index + 1) * WORD_SIZE),
+                ),
+                indentation: ctxt.indentation,
+            });
+
+            // Restore RDX
+            instrs.push(FInstr {
+                instr: Instr::Mov(
+                    Val::Reg(Reg::RDX),
+                    Val::RegOff(Reg::RBP, (stack_index + 2) * WORD_SIZE),
                 ),
                 indentation: ctxt.indentation,
             });
@@ -787,7 +863,7 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<FInstr> {
             // Save the current value of the heap pointer on the stack; this is the return value.
             let tup_addr_offset = ctxt.si * WORD_SIZE;
             instrs.push(FInstr {
-                instr: Instr::Mov(Val::RegOff(Reg::RSP, tup_addr_offset), Val::Reg(Reg::R15)),
+                instr: Instr::Mov(Val::RegOff(Reg::RBP, tup_addr_offset), Val::Reg(Reg::R15)),
                 indentation: ctxt.indentation,
             });
             // Store the size of the tuple on the heap
@@ -825,7 +901,7 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<FInstr> {
             }
             // Tag the start address of the heap pointer before returning it
             instrs.push(FInstr {
-                instr: Instr::Mov(Val::Reg(Reg::RAX), Val::RegOff(Reg::RSP, tup_addr_offset)),
+                instr: Instr::Mov(Val::Reg(Reg::RAX), Val::RegOff(Reg::RBP, tup_addr_offset)),
                 indentation: ctxt.indentation,
             });
             instrs.push(FInstr {
@@ -843,7 +919,7 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<FInstr> {
             // Save the address on the stack
             let addr_offset = ctxt.si * WORD_SIZE;
             instrs.push(FInstr {
-                instr: Instr::Mov(Val::RegOff(Reg::RSP, addr_offset), Val::Reg(Reg::RAX)),
+                instr: Instr::Mov(Val::RegOff(Reg::RBP, addr_offset), Val::Reg(Reg::RAX)),
                 indentation: ctxt.indentation,
             });
 
@@ -863,7 +939,7 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<FInstr> {
 
             // Unmask the address by clearing the LSB
             instrs.push(FInstr {
-                instr: Instr::Mov(Val::Reg(Reg::RBX), Val::RegOff(Reg::RSP, addr_offset)),
+                instr: Instr::Mov(Val::Reg(Reg::RBX), Val::RegOff(Reg::RBP, addr_offset)),
                 indentation: ctxt.indentation,
             });
             instrs.push(FInstr {
