@@ -26,6 +26,9 @@ pub extern "C" fn snek_error(errcode: i64) {
         1 => eprintln!("an error occurred: numeric overflow"),
         2 => eprintln!("an error occurred: invalid argument (incompatible types)"),
         3 => eprintln!("an error occurred: index out of bounds"),
+        4 => eprintln!("an error occurred: invalid tuple address"),
+        5 => eprintln!("an error occurred: invalid tuple offset"),
+        6 => eprintln!("an error occurred: tuple address out of bounds"),
         _ => eprintln!("Unknown error code: {errcode}"),
     }
     std::process::exit(1);
@@ -90,7 +93,7 @@ fn main() {
 
     // Allocate a large chunk of memory for the heap
     const HEAP_CAPACITY: usize = 1000000;
-    let mut heap_mem = Vec::<i64>::with_capacity(1000000);
+    let mut heap_mem = Vec::<i64>::with_capacity(HEAP_CAPACITY);
     let heap_start: *mut i64 = heap_mem.as_mut_ptr();
     let heap_end: *mut i64 = unsafe { heap_start.offset(HEAP_CAPACITY as isize) };
 

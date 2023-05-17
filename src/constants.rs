@@ -25,3 +25,6 @@ pub const NOT_HEAP_ADDRESS_LABEL: &str = "error_not_heap_address";
 
 pub const ERR_NOT_INDEX_OFFSET: i64 = 5;
 pub const NOT_INDEX_OFFSET_LABEL: &str = "error_not_index_offset";
+
+pub const ERR_HEAP_ADDRESS_OUT_OF_BOUNDS: i64 = 6;
+pub const HEAP_ADDRESS_OUT_OF_BOUNDS_LABEL: &str = "error_heap_address_out_of_bounds";

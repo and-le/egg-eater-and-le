@@ -915,6 +915,23 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<FInstr> {
             instrs.append(&mut is_heap_address_with_error(ctxt));
 
             // If the address is out of bounds of the heap, error
+            instrs.push(FInstr {
+                instr: Instr::Cmp(Val::Reg(Reg::RAX), Val::Reg(Reg::RSI)),
+                indentation: ctxt.indentation,
+            });
+            instrs.push(FInstr {
+                instr: Instr::JumpLess(HEAP_ADDRESS_OUT_OF_BOUNDS_LABEL.to_string()),
+                indentation: ctxt.indentation,
+            });
+
+            instrs.push(FInstr {
+                instr: Instr::Cmp(Val::Reg(Reg::RAX), Val::Reg(Reg::RDX)),
+                indentation: ctxt.indentation,
+            });
+            instrs.push(FInstr {
+                instr: Instr::JumpGreaterEqual(HEAP_ADDRESS_OUT_OF_BOUNDS_LABEL.to_string()),
+                indentation: ctxt.indentation,
+            });
 
             // Save the address on the stack
             let addr_offset = ctxt.si * WORD_SIZE;
@@ -1010,6 +1027,10 @@ fn compile_error_instrs(indentation: usize) -> Vec<FInstr> {
     error_instrs.append(&mut get_error_instrs(ERR_INDEX_OUT_OF_BOUNDS, indentation));
     error_instrs.append(&mut get_error_instrs(ERR_NOT_HEAP_ADDRESS, indentation));
     error_instrs.append(&mut get_error_instrs(ERR_NOT_INDEX_OFFSET, indentation));
+    error_instrs.append(&mut get_error_instrs(
+        ERR_HEAP_ADDRESS_OUT_OF_BOUNDS,
+        indentation,
+    ));
 
     return error_instrs;
 }
@@ -1041,6 +1062,10 @@ fn get_error_instrs(errcode: i64, indentation: usize) -> Vec<FInstr> {
         }),
         ERR_NOT_INDEX_OFFSET => instrs.push(FInstr {
             instr: Instr::Label(NOT_INDEX_OFFSET_LABEL.to_string()),
+            indentation,
+        }),
+        ERR_HEAP_ADDRESS_OUT_OF_BOUNDS => instrs.push(FInstr {
+            instr: Instr::Label(HEAP_ADDRESS_OUT_OF_BOUNDS_LABEL.to_string()),
             indentation,
         }),
 
