@@ -1,0 +1,11 @@
+(fun (set_input x)
+    (block
+        overwrite_rdi
+        (set! x (+ x 10))
+    )
+)
+
+(block 
+    (set_input input)
+    (print input)
+)

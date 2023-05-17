@@ -1,1 +1,0 @@
-(let ( (list (tuple 1 2 3)) ) (index list input) )
