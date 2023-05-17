@@ -65,6 +65,7 @@ pub enum Instr {
     JumpNotEqual(String),
     JumpNotZero(String),
     JumpGreaterEqual(String),
+    JumpLess(String),
     JumpOverflow(String),
 
     // Function conventions
@@ -182,6 +183,9 @@ pub fn instr_to_str(instr: &Instr) -> String {
         }
         Instr::JumpGreaterEqual(label) => {
             format!("jge {label}")
+        }
+        Instr::JumpLess(label) => {
+            format!("jl {label}")
         }
         Instr::JumpOverflow(label) => {
             format!("jo {label}")

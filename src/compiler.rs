@@ -201,7 +201,7 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<FInstr> {
         }
         Expr::UnOp(Op1::Add1, e) => {
             instrs.append(&mut compile_expr(e, ctxt));
-            instrs.append(&mut get_number_type_check_instrs(ctxt));
+            instrs.append(&mut is_number_with_error(ctxt));
             instrs.push(FInstr {
                 instr: Instr::Add(Val::Reg(Reg::RAX), Val::Imm(1 << 1)),
                 indentation: ctxt.indentation,
@@ -210,7 +210,7 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<FInstr> {
         }
         Expr::UnOp(Op1::Sub1, e) => {
             instrs.append(&mut compile_expr(e, ctxt));
-            instrs.append(&mut get_number_type_check_instrs(ctxt));
+            instrs.append(&mut is_number_with_error(ctxt));
             instrs.push(FInstr {
                 instr: Instr::Sub(Val::Reg(Reg::RAX), Val::Imm(1 << 1)),
                 indentation: ctxt.indentation,
@@ -220,7 +220,7 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<FInstr> {
         Expr::UnOp(Op1::IsNum, e) => {
             instrs.append(&mut compile_expr(e, ctxt));
             // Set condition codes for whether e is a number
-            instrs.append(&mut is_number_type_instrs(ctxt));
+            instrs.append(&mut is_number(ctxt));
             // Move false into RAX by default. Conditionally move true into RAX if e is a number
             instrs.push(FInstr {
                 instr: Instr::Mov(Val::Reg(Reg::RAX), Val::Imm(FALSE_VAL)),
@@ -238,7 +238,7 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<FInstr> {
         Expr::UnOp(Op1::IsBool, e) => {
             instrs.append(&mut compile_expr(e, ctxt));
             // Set condition codes for whether e is a Boolean
-            instrs.append(&mut is_boolean_type_instrs(ctxt));
+            instrs.append(&mut is_boolean(ctxt));
             // Move false into RAX by default. Conditionally move true into RAX if e is a Boolean
             instrs.push(FInstr {
                 instr: Instr::Mov(Val::Reg(Reg::RAX), Val::Imm(FALSE_VAL)),
@@ -413,7 +413,7 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<FInstr> {
             // Insert instructions based on the type of logical operator
             match op {
                 Op2::Equal => {
-                    instrs.append(&mut get_same_type_check_instrs(stack_offset, ctxt));
+                    instrs.append(&mut are_same_types(stack_offset, ctxt));
                     // Compare the results of e1 and e2
                     instrs.push(FInstr {
                         instr: Instr::Cmp(Val::Reg(Reg::RAX), Val::RegOff(Reg::RSP, stack_offset)),
@@ -766,8 +766,8 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<FInstr> {
         }
         Expr::Index(addr, offset) => {
             instrs.append(&mut compile_expr(addr, ctxt));
-
-            // TODO: If the address expression did not actually evaluate to an address, error
+            // If the address expression did not actually evaluate to an address, error
+            instrs.append(&mut is_tuple_with_error(ctxt));
 
             // Save the address on the stack
             let addr_offset = ctxt.si * WORD_SIZE;
@@ -775,6 +775,7 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<FInstr> {
                 instr: Instr::Mov(Val::RegOff(Reg::RSP, addr_offset), Val::Reg(Reg::RAX)),
                 indentation: ctxt.indentation,
             });
+
             instrs.append(&mut compile_expr(
                 offset,
                 &Context {
@@ -782,8 +783,8 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<FInstr> {
                     ..*ctxt
                 },
             ));
-
-            // TODO: If the offset expression did not actually evaluate to a number, error.
+            // If the offset expression did not actually evaluate to a number, error.
+            instrs.append(&mut is_number_with_error(ctxt));
 
             // Unmask the address by clearing the LSB
             instrs.push(FInstr {
@@ -807,6 +808,15 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<FInstr> {
             });
             instrs.push(FInstr {
                 instr: Instr::JumpGreaterEqual(INDEX_OUT_OF_BOUNDS_LABEL.to_string()),
+                indentation: ctxt.indentation,
+            });
+            // If offset size < 0, jump to error
+            instrs.push(FInstr {
+                instr: Instr::Cmp(Val::Reg(Reg::RAX), Val::Imm(0)),
+                indentation: ctxt.indentation,
+            });
+            instrs.push(FInstr {
+                instr: Instr::JumpLess(INDEX_OUT_OF_BOUNDS_LABEL.to_string()),
                 indentation: ctxt.indentation,
             });
 
@@ -975,7 +985,7 @@ fn get_num_overflow_instrs(ctxt: &Context) -> Vec<FInstr> {
 
 // Returns a vector of instructions that checks whether the current value in RAX is a number.
 // Uses RBX for intermediate computation, and does a CMP that sets condition codes.
-fn is_number_type_instrs(ctxt: &Context) -> Vec<FInstr> {
+fn is_number(ctxt: &Context) -> Vec<FInstr> {
     let mut instrs = Vec::new();
     instrs.push(FInstr {
         instr: Instr::Mov(Val::Reg(Reg::RBX), Val::Reg(Reg::RAX)),
@@ -998,9 +1008,9 @@ fn is_number_type_instrs(ctxt: &Context) -> Vec<FInstr> {
 
 // Returns a vector of instructions that checks whether the current value in RAX
 // is a number. Throws an error if this value is not a number, otherwise continues.
-fn get_number_type_check_instrs(ctxt: &Context) -> Vec<FInstr> {
+fn is_number_with_error(ctxt: &Context) -> Vec<FInstr> {
     let mut instrs = Vec::new();
-    instrs.append(&mut is_number_type_instrs(ctxt));
+    instrs.append(&mut is_number(ctxt));
     instrs.push(FInstr {
         instr: Instr::JumpNotEqual(INVALID_TYPE_LABEL.to_string()),
         indentation: ctxt.indentation,
@@ -1010,7 +1020,7 @@ fn get_number_type_check_instrs(ctxt: &Context) -> Vec<FInstr> {
 
 // Returns a vector of instructions that checks whether the current value in RAX is a Boolean.
 // Uses RBX for intermediate computation, and does a CMP that sets condition codes.
-fn is_boolean_type_instrs(ctxt: &Context) -> Vec<FInstr> {
+fn is_boolean(ctxt: &Context) -> Vec<FInstr> {
     let mut instrs = Vec::new();
     instrs.push(FInstr {
         instr: Instr::Mov(Val::Reg(Reg::RBX), Val::Reg(Reg::RAX)),
@@ -1035,10 +1045,41 @@ fn is_boolean_type_instrs(ctxt: &Context) -> Vec<FInstr> {
     return instrs;
 }
 
+// Returns a vector of instructions that checks whether the current value in RAX is a tuple pointer.
+// Uses RBX for intermediate computation, and does a CMP that sets condition codes.
+fn is_tuple(ctxt: &Context) -> Vec<FInstr> {
+    let mut instrs = Vec::new();
+    instrs.push(FInstr {
+        instr: Instr::Mov(Val::Reg(Reg::RBX), Val::Reg(Reg::RAX)),
+        indentation: ctxt.indentation,
+    });
+    instrs.push(FInstr {
+        instr: Instr::And(Val::Reg(Reg::RBX), Val::Imm(1)),
+        indentation: ctxt.indentation,
+    });
+    instrs.push(FInstr {
+        instr: Instr::Cmp(Val::Reg(Reg::RBX), Val::Imm(1)),
+        indentation: ctxt.indentation,
+    });
+    return instrs;
+}
+
 // Returns a vector of instructions that checks whether the current value in RAX
-// and another value on the stack are the same type. If the types are different,
+// is a tuple pointer. Throws an error if this value is not a tuple pointer, otherwise continues.
+fn is_tuple_with_error(ctxt: &Context) -> Vec<FInstr> {
+    let mut instrs = Vec::new();
+    instrs.append(&mut is_tuple(ctxt));
+    instrs.push(FInstr {
+        instr: Instr::JumpNotEqual(INVALID_TYPE_LABEL.to_string()),
+        indentation: ctxt.indentation,
+    });
+    return instrs;
+}
+
+// Returns a vector of instructions that checks whether the current value in RAX
+// and the next value on the stack at lower memory are the same type. If the types are different,
 // jumps to error code; otherwise, continues.
-fn get_same_type_check_instrs(stack_offset: i64, ctxt: &Context) -> Vec<FInstr> {
+fn are_same_types(stack_offset: i64, ctxt: &Context) -> Vec<FInstr> {
     let mut instrs = Vec::new();
     // Move the contents of RAX into RBX
     instrs.push(FInstr {
