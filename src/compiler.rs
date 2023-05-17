@@ -723,7 +723,11 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<FInstr> {
             });
             // Store the size of the tuple on the heap
             instrs.push(FInstr {
-                instr: Instr::Mov(Val::RegOff(Reg::R15, 0), Val::Imm(args.len() as i64)),
+                instr: Instr::Mov(Val::Reg(Reg::R12), Val::Imm((args.len() as i64) << 1)),
+                indentation: ctxt.indentation,
+            });
+            instrs.push(FInstr {
+                instr: Instr::Mov(Val::RegOff(Reg::R15, 0), Val::Reg(Reg::R12)),
                 indentation: ctxt.indentation,
             });
             // Update the heap pointer
@@ -762,6 +766,9 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<FInstr> {
         }
         Expr::Index(addr, offset) => {
             instrs.append(&mut compile_expr(addr, ctxt));
+
+            // TODO: If the address expression did not actually evaluate to an address, error
+
             // Save the address on the stack
             let addr_offset = ctxt.si * WORD_SIZE;
             instrs.push(FInstr {
@@ -775,6 +782,9 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<FInstr> {
                     ..*ctxt
                 },
             ));
+
+            // TODO: If the offset expression did not actually evaluate to a number, error.
+
             // Unmask the address by clearing the LSB
             instrs.push(FInstr {
                 instr: Instr::Mov(Val::Reg(Reg::R12), Val::RegOff(Reg::RSP, addr_offset)),
@@ -792,7 +802,7 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<FInstr> {
             });
             // If offset size >= tuple size, jump to error
             instrs.push(FInstr {
-                instr: Instr::Cmp(Val::Reg(Reg::R13), Val::Reg(Reg::RAX)),
+                instr: Instr::Cmp(Val::Reg(Reg::RAX), Val::Reg(Reg::R13)),
                 indentation: ctxt.indentation,
             });
             instrs.push(FInstr {
@@ -986,6 +996,18 @@ fn is_number_type_instrs(ctxt: &Context) -> Vec<FInstr> {
     return instrs;
 }
 
+// Returns a vector of instructions that checks whether the current value in RAX
+// is a number. Throws an error if this value is not a number, otherwise continues.
+fn get_number_type_check_instrs(ctxt: &Context) -> Vec<FInstr> {
+    let mut instrs = Vec::new();
+    instrs.append(&mut is_number_type_instrs(ctxt));
+    instrs.push(FInstr {
+        instr: Instr::JumpNotEqual(INVALID_TYPE_LABEL.to_string()),
+        indentation: ctxt.indentation,
+    });
+    return instrs;
+}
+
 // Returns a vector of instructions that checks whether the current value in RAX is a Boolean.
 // Uses RBX for intermediate computation, and does a CMP that sets condition codes.
 fn is_boolean_type_instrs(ctxt: &Context) -> Vec<FInstr> {
@@ -1008,18 +1030,6 @@ fn is_boolean_type_instrs(ctxt: &Context) -> Vec<FInstr> {
 
     instrs.push(FInstr {
         instr: Instr::Cmp(Val::Reg(Reg::RBX), Val::Imm(BOOLEAN_LSB)),
-        indentation: ctxt.indentation,
-    });
-    return instrs;
-}
-
-// Returns a vector of instructions that checks whether the current value in RAX
-// is a number. Throws an error if this value is not a number, otherwise continues.
-fn get_number_type_check_instrs(ctxt: &Context) -> Vec<FInstr> {
-    let mut instrs = Vec::new();
-    instrs.append(&mut is_number_type_instrs(ctxt));
-    instrs.push(FInstr {
-        instr: Instr::JumpNotEqual(INVALID_TYPE_LABEL.to_string()),
         indentation: ctxt.indentation,
     });
     return instrs;

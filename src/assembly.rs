@@ -229,6 +229,13 @@ fn val_to_str(val: &Val) -> String {
                 format!("[rsp + {}]", -1 * offset)
             }
         }
+        Val::RegOff(Reg::R12, offset) => {
+            if *offset > 0 {
+                format!("[r12 - {offset}]")
+            } else {
+                format!("[r12 + {}]", -1 * offset)
+            }
+        }
         Val::RegOff(Reg::R15, offset) => {
             if *offset > 0 {
                 format!("[r15 - {offset}]")
