@@ -28,10 +28,9 @@ pub enum Op2 {
 // Expressions
 #[derive(Debug)]
 pub enum Expr {
-    // Numbers are 63-bit signed integers. The LSB is reserved for typing.
-    // The LSB is 0 if the value represents a Number; 1 if the value represents a Boolean.
     Number(i64),
     Boolean(bool),
+    Input,
     Nil,
     Id(String),
     Let(Vec<(String, Expr)>, Box<Expr>),

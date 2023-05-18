@@ -243,12 +243,7 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<FInstr> {
             instr: Instr::Mov(Val::Reg(Reg::RAX), Val::Imm(TRUE_VAL)),
             indentation: ctxt.indentation,
         }),
-        Expr::Nil => instrs.push(FInstr {
-            instr: Instr::Mov(Val::Reg(Reg::RAX), Val::Imm(NIL_VAL)),
-            indentation: ctxt.indentation,
-        }),
-
-        Expr::Id(keyword) if keyword == "input" => {
+        Expr::Input => {
             if !ctxt.compiling_main {
                 panic!("Invalid: input can only be used in the main expression");
             }
@@ -257,6 +252,11 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<FInstr> {
                 indentation: ctxt.indentation,
             });
         }
+        Expr::Nil => instrs.push(FInstr {
+            instr: Instr::Mov(Val::Reg(Reg::RAX), Val::Imm(NIL_VAL)),
+            indentation: ctxt.indentation,
+        }),
+
         Expr::Id(s) => {
             // If the identifier is unbound in its scope, report an error.
             let id_stack_offset = match ctxt.env.get(s) {

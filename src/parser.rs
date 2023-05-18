@@ -75,9 +75,9 @@ fn parse_sexpr(sexpr: &Sexp) -> Expr {
                 None => 0,
             });
         }
-        // Boolean
         Sexp::Atom(S(name)) if name == "false" => Expr::Boolean(false),
         Sexp::Atom(S(name)) if name == "true" => Expr::Boolean(true),
+        Sexp::Atom(S(name)) if name == "input" => Expr::Input,
         Sexp::Atom(S(name)) if name == "nil" => Expr::Nil,
 
         // Identifier
