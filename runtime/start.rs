@@ -74,12 +74,12 @@ fn snek_str(val: i64) -> String {
     } else if val & 1 == 1 {
         let mut strings: Vec<String> = Vec::new();
         let addr = (val - 1) as *const i64;
-        let tuple_size = unsafe { *addr };
+        let tuple_size = unsafe { *addr >> 1 };
         for i in 1..tuple_size + 1 {
             let elem = unsafe { *addr.offset(i as isize) };
             strings.push(snek_str(elem));
         }
-        format!("tuple {}", strings.join(" "))
+        format!("(tuple {})", strings.join(" "))
     } else {
         format!("Unknown value: {}", val)
     }
