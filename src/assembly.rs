@@ -12,19 +12,15 @@ pub enum Val {
 #[derive(Debug, Clone, Copy)]
 pub enum Reg {
     RAX, // return value, caller-saved
-
     RDI, // first function arg, caller-saved
     RSI, // second function arg, caller-saved
     RDX, // third function arg, caller-saved
-
     RSP, // stack pointer, callee-saved
     RBP, // base pointer, callee-saved
-
     RBX, // local variable, callee-saved
     R12, // local variable, callee-saved
     R13, // local variable, callee-saved
     R14, // local variable, callee-saved
-
     R15, // heap pointer, callee-saved
 }
 
@@ -82,125 +78,39 @@ pub enum Instr {
 pub fn instr_to_str(instr: &Instr) -> String {
     match instr {
         // Mov
-        Instr::Mov(val1, val2) => {
-            let str_val1 = val_to_str(val1);
-            let str_val2 = val_to_str(val2);
-            format!("mov {str_val1}, {str_val2}")
-        }
-
+        Instr::Mov(val1, val2) => format!("mov {}, {}", val_to_str(val1), val_to_str(val2)),
         // Arithmetic
-        Instr::Add(val1, val2) => {
-            let str_val1 = val_to_str(val1);
-            let str_val2 = val_to_str(val2);
-            format!("add {str_val1}, {str_val2}")
-        }
-        Instr::Sub(val1, val2) => {
-            let str_val1 = val_to_str(val1);
-            let str_val2 = val_to_str(val2);
-            format!("sub {str_val1}, {str_val2}")
-        }
-        Instr::Mul(val1, val2) => {
-            let str_val1 = val_to_str(val1);
-            let str_val2 = val_to_str(val2);
-            format!("imul {str_val1}, {str_val2}")
-        }
-
+        Instr::Add(val1, val2) => format!("add {}, {}", val_to_str(val1), val_to_str(val2)),
+        Instr::Sub(val1, val2) => format!("sub {}, {}", val_to_str(val1), val_to_str(val2)),
+        Instr::Mul(val1, val2) => format!("imul {}, {}", val_to_str(val1), val_to_str(val2)),
         // Comparison
-        Instr::Cmp(val1, val2) => {
-            let str_val1 = val_to_str(val1);
-            let str_val2 = val_to_str(val2);
-            format!("cmp {str_val1}, {str_val2}")
-        }
-
-        Instr::Test(val1, val2) => {
-            let str_val1 = val_to_str(val1);
-            let str_val2 = val_to_str(val2);
-            format!("test {str_val1}, {str_val2}")
-        }
-
+        Instr::Cmp(val1, val2) => format!("cmp {}, {}", val_to_str(val1), val_to_str(val2)),
+        Instr::Test(val1, val2) => format!("test {}, {}", val_to_str(val1), val_to_str(val2)),
         // Conditional move
-        Instr::CMove(val1, val2) => {
-            let str_val1 = val_to_str(val1);
-            let str_val2 = val_to_str(val2);
-            format!("cmove {str_val1}, {str_val2}")
-        }
-        Instr::CMovg(val1, val2) => {
-            let str_val1 = val_to_str(val1);
-            let str_val2 = val_to_str(val2);
-            format!("cmovg {str_val1}, {str_val2}")
-        }
-        Instr::CMovge(val1, val2) => {
-            let str_val1 = val_to_str(val1);
-            let str_val2 = val_to_str(val2);
-            format!("cmovge {str_val1}, {str_val2}")
-        }
-        Instr::CMovl(val1, val2) => {
-            let str_val1 = val_to_str(val1);
-            let str_val2 = val_to_str(val2);
-            format!("cmovl {str_val1}, {str_val2}")
-        }
-        Instr::CMovle(val1, val2) => {
-            let str_val1 = val_to_str(val1);
-            let str_val2 = val_to_str(val2);
-            format!("cmovle {str_val1}, {str_val2}")
-        }
-
+        Instr::CMove(val1, val2) => format!("cmove {}, {}", val_to_str(val1), val_to_str(val2)),
+        Instr::CMovg(val1, val2) => format!("cmovg {}, {}", val_to_str(val1), val_to_str(val2)),
+        Instr::CMovge(val1, val2) => format!("cmovge {}, {}", val_to_str(val1), val_to_str(val2)),
+        Instr::CMovl(val1, val2) => format!("cmovl {}, {}", val_to_str(val1), val_to_str(val2)),
+        Instr::CMovle(val1, val2) => format!("cmovle {}, {}", val_to_str(val1), val_to_str(val2)),
         // Bitwise
-        Instr::And(val1, val2) => {
-            let str_val1 = val_to_str(val1);
-            let str_val2 = val_to_str(val2);
-            format!("and {str_val1}, {str_val2}")
-        }
-        Instr::Or(val1, val2) => {
-            let str_val1 = val_to_str(val1);
-            let str_val2 = val_to_str(val2);
-            format!("or {str_val1}, {str_val2}")
-        }
-
-        Instr::Xor(val1, val2) => {
-            let str_val1 = val_to_str(val1);
-            let str_val2 = val_to_str(val2);
-            format!("xor {str_val1}, {str_val2}")
-        }
-        Instr::Not(val) => {
-            format!("not {}", val_to_str(val))
-        }
-
+        Instr::And(val1, val2) => format!("and {}, {}", val_to_str(val1), val_to_str(val2)),
+        Instr::Or(val1, val2) => format!("or {}, {}", val_to_str(val1), val_to_str(val2)),
+        Instr::Xor(val1, val2) => format!("xor {}, {}", val_to_str(val1), val_to_str(val2)),
+        Instr::Not(val) => format!("not {}", val_to_str(val)),
         // Label
-        Instr::Label(label) => {
-            format!("{label}:")
-        }
-
+        Instr::Label(label) => format!("{label}:"),
         // Jumps
-        Instr::Jump(label) => {
-            format!("jmp {label}")
-        }
-        Instr::JumpEqual(label) => {
-            format!("je {label}")
-        }
-        Instr::JumpNotEqual(label) => {
-            format!("jne {label}")
-        }
-        Instr::JumpNotZero(label) => {
-            format!("jnz {label}")
-        }
-        Instr::JumpGreaterEqual(label) => {
-            format!("jge {label}")
-        }
-        Instr::JumpLess(label) => {
-            format!("jl {label}")
-        }
-        Instr::JumpOverflow(label) => {
-            format!("jo {label}")
-        }
-
+        Instr::Jump(label) => format!("jmp {label}"),
+        Instr::JumpEqual(label) => format!("je {label}"),
+        Instr::JumpNotEqual(label) => format!("jne {label}"),
+        Instr::JumpNotZero(label) => format!("jnz {label}"),
+        Instr::JumpGreaterEqual(label) => format!("jge {label}"),
+        Instr::JumpLess(label) => format!("jl {label}"),
+        Instr::JumpOverflow(label) => format!("jo {label}"),
         // Shifts
         Instr::Sar(src, shift_amount) => {
-            let str_src = val_to_str(src);
-            let str_amount = val_to_str(shift_amount);
-            format!("sar {str_src}, {str_amount}")
+            format!("sar {}, {}", val_to_str(src), val_to_str(shift_amount))
         }
-
         // Function calling
         Instr::Push(val) => format!("push {}", val_to_str(val)),
         Instr::Pop(val) => format!("pop {}", val_to_str(val)),
