@@ -1,0 +1,18 @@
+(fun (sum start end)
+    (let ((acc 0))        
+        (if (> start end)
+            acc  
+            (block
+                (set! acc (+ acc start))
+                (set! start (add1 start))
+                (let ( (rest (sum start end)) ) 
+                    (set! acc (+ acc rest))
+                )
+            )
+        )              
+    )  
+)
+
+(let ((main_start 1) (main_end 10)) 
+    (sum main_start main_end) 
+)

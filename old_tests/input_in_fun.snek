@@ -1,5 +1,0 @@
-(fun (fn_input a)
-    (+ a input)
-)
-
-(fn_input 100)

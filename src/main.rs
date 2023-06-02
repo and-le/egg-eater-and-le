@@ -2,16 +2,16 @@ use std::env;
 use std::fs::File;
 use std::io::prelude::*;
 
-use assembly::format_instructions;
 use sexp::*;
 
 // Modules
-mod abstract_syntax;
 mod assembly;
 mod compiler;
 mod constants;
 mod parser;
+mod syntax;
 
+use assembly::instructions_to_string;
 use compiler::compile_program;
 use parser::parse_program;
 
@@ -45,9 +45,10 @@ fn main() -> std::io::Result<()> {
 
     let program = parse_program(&sexpr);
     let compiled_program = compile_program(&program, "our_code_starts_here".to_string());
-    let error_code = format_instructions(compiled_program.error_instrs);
-    let function_code = format_instructions(compiled_program.fun_instrs);
-    let main_code = format_instructions(compiled_program.main_instrs);
+
+    let error_code = instructions_to_string(compiled_program.error_instrs);
+    let function_code = instructions_to_string(compiled_program.fun_instrs);
+    let main_code = instructions_to_string(compiled_program.main_instrs);
 
     let asm_program = format!(
         "

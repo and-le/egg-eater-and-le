@@ -272,20 +272,12 @@ fn val_to_str(val: &Val) -> String {
     }
 }
 
-// A formatted assembly instruction for generating nicer-looking assembly code
-#[derive(Debug)]
-pub struct FInstr {
-    pub instr: Instr,       // the instruction itself
-    pub indentation: usize, // number of tabs this instruction is indented by
-}
-
-// Formats the vector of instructions
-pub fn format_instructions(finstrs: Vec<FInstr>) -> String {
+// Converts the instructions to a String
+pub fn instructions_to_string(instrs: Vec<Instr>) -> String {
     let mut strs: Vec<String> = Vec::new();
-    for fis in finstrs.iter() {
-        let indentation = "\t".repeat(fis.indentation);
-        let s_is = instr_to_str(&fis.instr);
-        strs.push(format!("{indentation}{s_is}"));
+    for instr in instrs.iter() {
+        let s_is = instr_to_str(&instr);
+        strs.push(format!("{s_is}"));
     }
     return strs.join("\n");
 }

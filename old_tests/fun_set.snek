@@ -1,5 +1,0 @@
-(fun (setfn x)
-    (set! x (add1 x))
-)
-
-(setfn 20)

@@ -4,7 +4,7 @@
 use sexp::Atom::*;
 use sexp::*;
 
-use crate::abstract_syntax::*;
+use crate::syntax::*;
 
 use im::HashSet;
 

@@ -1,0 +1,4 @@
+(fun (increment x)
+    (add1 x)
+)
+(increment input)
