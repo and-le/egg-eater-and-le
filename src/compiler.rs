@@ -927,3 +927,29 @@ fn are_same_types(stack_offset: i64, ctxt: &Context) -> Vec<Instr> {
 
     return instrs;
 }
+
+// Calculates the number of stack words that must be allocated for the given expression.
+fn depth(expr: &Expr) -> u32 {
+    match expr {
+        Expr::Number(_) | Expr::Boolean(_) | Expr::Input | Expr::Nil | Expr::Id(_) => 0,
+        Expr::UnOp(_, e) | Expr::Loop(e) | Expr::Break(e) | Expr::Set(_, e) => depth(e),
+        Expr::BinOp(_, e1, e2) => depth(e1).max(depth(e2) + 1),
+        Expr::If(e1, e2, e3) => depth(e1).max(depth(e2)).max(depth(e3)),
+        Expr::Block(es) => es.iter().map(depth).max().unwrap_or(0),
+        Expr::Let(bindings, body) => bindings
+            .iter()
+            .enumerate()
+            .map(|(i, (_, e))| depth(e) + (i as u32))
+            .max()
+            .unwrap_or(0)
+            .max(depth(body) + bindings.len() as u32),
+        Expr::FunCall(_, args) | Expr::Tuple(args) => args
+            .iter()
+            .enumerate()
+            .map(|(i, e)| depth(e) + (i as u32))
+            .max()
+            .unwrap_or(0)
+            .max(args.len() as u32),
+        Expr::Index(vec, offset) => depth(vec).max(depth(offset) + 1),
+    }
+}
