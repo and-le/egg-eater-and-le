@@ -31,7 +31,7 @@ pub extern "C" fn snek_error(errcode: i64) {
         6 => eprintln!("an error occurred: tuple address out of bounds"),
         _ => eprintln!("Unknown error code: {errcode}"),
     }
-    std::process::exit(1);
+    std::process::exit(errcode as i32);
 }
 
 // Prints the formatted representation of the value and returns the original input value.
@@ -72,9 +72,11 @@ fn snek_str(val: i64) -> String {
     } else if val == 1 {
         "nil".to_string()
     } else if val & 1 == 1 {
+        // format!("{:0x}", val)
         let mut strings: Vec<String> = Vec::new();
         let addr = (val - 1) as *const i64;
-        let tuple_size = unsafe { *addr >> 1 };
+        let tuple_size = unsafe { *addr };
+        // strings.push(format!("Addr {:?}", addr));
         for i in 1..tuple_size + 1 {
             let elem = unsafe { *addr.offset(i as isize) };
             strings.push(snek_str(elem));
@@ -96,6 +98,8 @@ fn main() {
     let mut heap_mem = Vec::<i64>::with_capacity(HEAP_CAPACITY);
     let heap_start: *mut i64 = heap_mem.as_mut_ptr();
     let heap_end: *mut i64 = unsafe { heap_start.offset(HEAP_CAPACITY as isize) };
+    // println!("Heap start: {:?}", heap_start);
+    // println!("Heap end: {:?}", heap_end);
 
     // Run the compiled code
     let output: i64 = unsafe { our_code_starts_here(input, heap_start, heap_end) };

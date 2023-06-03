@@ -1,5 +1,0 @@
-(fun (fn2 a b)
-    (+ a b)
-)
-
-(fn2 input 10)

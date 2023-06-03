@@ -1,1 +1,0 @@
-(let ((obj (tuple 1 2))) (index obj 0 1))

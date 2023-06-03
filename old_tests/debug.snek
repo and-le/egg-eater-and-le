@@ -1,0 +1,8 @@
+(fun (is_positive x)
+    (> x 0)
+)
+
+(block 
+    (print (is_positive 10))
+    (+ 20 30)
+)

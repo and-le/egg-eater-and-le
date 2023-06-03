@@ -44,11 +44,8 @@ fn main() -> std::io::Result<()> {
     };
 
     let program = parse_program(&sexpr);
-    let compiled_program = compile_program(&program, "our_code_starts_here".to_string());
-
-    let error_code = instructions_to_string(compiled_program.error_instrs);
-    let function_code = instructions_to_string(compiled_program.fun_instrs);
-    let main_code = instructions_to_string(compiled_program.main_instrs);
+    let compiled_instrs = compile_program(&program, "our_code_starts_here".to_string());
+    let code = instructions_to_string(compiled_instrs);
 
     let asm_program = format!(
         "
@@ -56,9 +53,7 @@ fn main() -> std::io::Result<()> {
     global our_code_starts_here
     extern snek_error
     extern snek_print
-{error_code}
-{function_code}
-{main_code}
+{code}
     "
     );
 

@@ -14,40 +14,34 @@ use crate::syntax::*;
 
 static mut LABEL_CTR: usize = 0;
 
+const DISABLE_ERROR_CHECKING: bool = false;
+
 // Contains contextual information the compiler uses to compile each expression.
+#[derive(Debug, Clone)]
 struct Context<'a> {
-    si: i64,
-    env: &'a HashMap<String, i64>, // maps identifiers to their stack offsets
-    break_label: &'a str,
-    function_env: &'a HashMap<String, Vec<String>>, // maps each function name to its parameters
+    si: i64,                                   // stack index
+    env: &'a HashMap<String, i64>, // maps ids to their (positive) stack offsets relative to the stack pointer
+    break_label: &'a str,          // current label to break to
+    fun_map: &'a HashMap<String, Vec<String>>, // maps each function name to its parameters
     compiling_main: bool, // whether this context is being used to compile the main expression
 }
 
-// A collection of instructions for a compiled program
-pub struct CompiledProgram {
-    pub error_instrs: Vec<Instr>,
-    pub fun_instrs: Vec<Instr>,
-    pub main_instrs: Vec<Instr>,
-}
-
 // Returns a tuple of (instructions for function definitions, instructions for main expression)
-pub fn compile_program(prog: &Program, start_label: String) -> CompiledProgram {
-    // Indentation level used for formatting
-    let indentation = 1;
+pub fn compile_program(prog: &Program, start_label: String) -> Vec<Instr> {
+    let mut instrs: Vec<Instr> = Vec::new();
+    instrs.append(&mut compile_error_instrs());
 
-    // Maps each function name to its parameters
-    let mut fun_env: HashMap<String, Vec<String>> = HashMap::new();
+    // Maps each function name to its parameters.
+    // This map enables checking for:
+    // 1. calling undefined functions
+    // 2. calling a function with the wrong number of arguments
+    let mut fun_map: HashMap<String, Vec<String>> = HashMap::new();
 
-    // On this first pass, we add function names to the function env.
-    // We do this pre-processing to later detect if we try to call a function
-    // that doesn't exist or with the wrong number of arguments.
     for def in prog.defs.iter() {
-        // Check if a function with the same name has already been defined
-        if fun_env.contains_key(&def.name) {
+        if fun_map.contains_key(&def.name) {
             panic!("Function {} already defined", def.name);
         }
 
-        // Check for duplicate-named parameters
         let mut seen_params: HashSet<String> = HashSet::new();
         for param in def.params.iter() {
             if seen_params.contains(param) {
@@ -55,116 +49,136 @@ pub fn compile_program(prog: &Program, start_label: String) -> CompiledProgram {
             }
             seen_params = seen_params.update(param.to_string());
         }
-        // Update the function env
-        fun_env = fun_env.update(def.name.to_string(), def.params.to_vec());
+        fun_map = fun_map.update(def.name.to_string(), def.params.to_vec());
     }
 
-    let ctxt = Context {
-        si: 1,
-        env: &HashMap::new(),
-        break_label: "",
-        function_env: &fun_env,
-        compiling_main: false,
-    };
+    instrs.append(&mut compile_funs(&prog.defs, &fun_map));
+    instrs.push(Instr::Label(start_label.to_string()));
 
-    // On the second pass, we compile the body of each function.
-    let mut fun_instrs: Vec<Instr> = Vec::new();
-    const NUM_SAVED_VALUES: i64 = 2;
-    for def in prog.defs.iter() {
-        // These values need to be set up by the caller.
-        // For now, we use the same ENV variable, since there is no concept of
-        // global variables yet. If we introduce global variables, we would need
-        // to differentiate between function scopes and global scopes, likely
-        // by using a separate ENV variable for functions and globals.
-        let mut new_env = ctxt.env.clone();
-        for (index, param) in def.params.iter().enumerate() {
-            // Functions access arguments at positive offsets from the base of the current stack frame.
-            // All saved values followed by the return address are located after the base.
-            let arg_offset = (index as i64 + NUM_SAVED_VALUES + 1) * WORD_SIZE;
-            new_env = new_env.update(param.to_string(), -arg_offset);
-        }
-        let new_ctxt = Context {
-            env: &new_env,
-            si: ctxt.si + 1,
-            ..ctxt
-        };
+    let locals = depth(&prog.main);
+    let callee_saved = [
+        Val::Reg(Reg::RBP),
+        Val::Reg(Reg::R11),
+        Val::Reg(Reg::R12),
+        Val::Reg(Reg::R13),
+    ];
+    instrs.append(&mut fun_entry(locals, &callee_saved));
+    instrs.push(Instr::Mov(Val::Reg(Reg::R13), Val::Reg(Reg::RDI)));
+    instrs.push(Instr::Mov(Val::Reg(Reg::R15), Val::Reg(Reg::RSI)));
 
-        // Insert function label
-        fun_instrs.push(Instr::Label(def.name.to_string()));
-
-        // TODO: If needed, allocate an extra word of space to keep stack pointer aligned.
-
-        // Save RBX
-        fun_instrs.push(Instr::Push(Val::Reg(Reg::RBX)));
-
-        // Save base pointer
-        fun_instrs.push(Instr::Push(Val::Reg(Reg::RBP)));
-
-        // Set base pointer to bottom of stack frame
-        fun_instrs.push(Instr::Mov(Val::Reg(Reg::RBP), Val::Reg(Reg::RSP)));
-
-        // Insert body
-        fun_instrs.append(&mut compile_expr(&def.body, &new_ctxt));
-
-        // Restore base pointer
-        fun_instrs.push({ Instr::Pop(Val::Reg(Reg::RBP)) });
-
-        // Restore RBP
-        fun_instrs.push(Instr::Pop(Val::Reg(Reg::RBX)));
-
-        // Insert return
-        fun_instrs.push(Instr::Ret());
-    }
-
-    // Compile the main expr
-    let mut main_instrs: Vec<Instr> = Vec::new();
-    main_instrs.push(Instr::Label(start_label.to_string()));
-
-    // Move the heap start address into R15
-    main_instrs.push(Instr::Mov(Val::Reg(Reg::R15), Val::Reg(Reg::RSI)));
-
-    // Move the heap start address into R13
-    main_instrs.push(Instr::Mov(Val::Reg(Reg::R13), Val::Reg(Reg::RSI)));
-    // Move the heap end address into R14
-    main_instrs.push(Instr::Mov(Val::Reg(Reg::R14), Val::Reg(Reg::RDX)));
-
-    // Subtract a word from stack pointer to maintain alignment
-    main_instrs.push(Instr::Sub(Val::Reg(Reg::RSP), Val::Imm(WORD_SIZE)));
-
-    // Save the current base pointer
-    main_instrs.push(Instr::Push(Val::Reg(Reg::RBP)));
-
-    // Move the current stack pointer into the base pointer
-    main_instrs.push(Instr::Mov(Val::Reg(Reg::RBP), Val::Reg(Reg::RSP)));
+    instrs.push(Instr::Mov(Val::Reg(Reg::R11), Val::Reg(Reg::RSI)));
+    instrs.push(Instr::Mov(Val::Reg(Reg::R14), Val::Reg(Reg::RDX)));
 
     // Main body
-    main_instrs.append(&mut compile_expr(
+    instrs.append(&mut compile_expr(
         &prog.main,
         &Context {
+            si: 0,
+            env: &HashMap::default(),
+            break_label: "",
+            fun_map: &fun_map,
             compiling_main: true,
-            ..ctxt
         },
     ));
+    instrs.append(&mut fun_exit(locals, &callee_saved));
 
-    // Restore base pointer
-    main_instrs.push(Instr::Pop(Val::Reg(Reg::RBP)));
+    return instrs;
+}
 
-    // Reset stack pointer
-    main_instrs.push(Instr::Add(Val::Reg(Reg::RSP), Val::Imm(WORD_SIZE)));
+// Compile all functions
+fn compile_funs(funs: &Vec<Definition>, fun_map: &HashMap<String, Vec<String>>) -> Vec<Instr> {
+    let mut instrs = Vec::new();
+    for fun in funs.iter() {
+        instrs.append(&mut compile_fun(fun, fun_map));
+    }
+    return instrs;
+}
 
-    // Final return
-    main_instrs.push(Instr::Ret());
+// Compile given function
+fn compile_fun(fun: &Definition, fun_map: &HashMap<String, Vec<String>>) -> Vec<Instr> {
+    let mut instrs = Vec::new();
+    let locals = depth(&fun.body);
+    let callee_saved = &[Val::Reg(Reg::RBP)];
 
-    return CompiledProgram {
-        error_instrs: compile_error_instrs(indentation),
-        fun_instrs,
-        main_instrs,
+    instrs.push(Instr::Label(fun.name.to_string()));
+    instrs.append(&mut fun_entry(locals, callee_saved));
+
+    let env: HashMap<String, i64> = fun
+        .params
+        .iter()
+        .enumerate()
+        .map(|(i, param)| (param.to_string(), (-1) * WORD_SIZE * (i as i64 + 2)))
+        .collect();
+    let ctxt = Context {
+        si: 0,
+        env: &env,
+        break_label: "",
+        fun_map: fun_map,
+        compiling_main: false,
     };
+    instrs.append(&mut compile_expr(&fun.body, &ctxt));
+    instrs.append(&mut fun_exit(locals, callee_saved));
+
+    return instrs;
+}
+
+// Instructions for the beginning of every function.
+fn fun_entry(locals: u32, callee_saved: &[Val]) -> Vec<Instr> {
+    let mut instrs: Vec<Instr> = Vec::new();
+
+    for reg in callee_saved {
+        instrs.push(Instr::Push(*reg));
+    }
+    instrs.push(Instr::Mov(Val::Reg(Reg::RBP), Val::Reg(Reg::RSP)));
+
+    let size = frame_size(locals, callee_saved);
+    instrs.push(Instr::Sub(
+        Val::Reg(Reg::RSP),
+        Val::Imm(WORD_SIZE * (size as i64)),
+    ));
+
+    // Set all of the allocated stack space words to NIL; this ensures we don't
+    // try to process garbage "heap" values in garbage collection
+    // for i in 0..size {
+    //     instrs.push(Instr::Mov(
+    //         Val::RegOff(Reg::RBP, WORD_SIZE * (1 + i as i64)),
+    //         Val::Imm(NIL_VAL),
+    //     ));
+    // }
+
+    return instrs;
+}
+
+// Instructions for the end of every function
+fn fun_exit(locals: u32, callee_saved: &[Val]) -> Vec<Instr> {
+    let mut instrs: Vec<Instr> = Vec::new();
+    let size = frame_size(locals, callee_saved);
+    instrs.push(Instr::Add(
+        Val::Reg(Reg::RSP),
+        Val::Imm(WORD_SIZE * size as i64),
+    ));
+    for reg in callee_saved.iter().rev() {
+        instrs.push(Instr::Pop(*reg));
+    }
+    instrs.push(Instr::Ret());
+
+    return instrs;
+}
+
+// Returns amount of words to subtract for RSP
+fn frame_size(locals: u32, callee_saved: &[Val]) -> u32 {
+    // frame size = #locals + #callee saved + return address
+    let n = locals + callee_saved.len() as u32 + 1;
+    if n % 2 == 0 {
+        locals
+    } else {
+        // Adjust for alignment
+        locals + 1
+    }
 }
 
 // Recursively compiles an expression into a list of assembly instruction
 fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<Instr> {
-    // The generated instructions. We push/append instructions to this vector.
     let mut instrs: Vec<Instr> = Vec::new();
 
     match expr {
@@ -183,37 +197,36 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<Instr> {
             if !ctxt.compiling_main {
                 panic!("Invalid: input can only be used in the main expression");
             }
-            instrs.push(Instr::Mov(Val::Reg(Reg::RAX), Val::Reg(Reg::RDI)));
+            instrs.push(Instr::Mov(Val::Reg(Reg::RAX), Val::Reg(Reg::R13)));
         }
         Expr::Nil => instrs.push(Instr::Mov(Val::Reg(Reg::RAX), Val::Imm(NIL_VAL))),
 
         Expr::Id(s) => {
-            // If the identifier is unbound in its scope, report an error.
-            let id_stack_offset = match ctxt.env.get(s) {
+            let stack_offset = match ctxt.env.get(s) {
                 Some(offset) => offset,
                 None => panic!("Unbound variable identifier {s}"),
             };
             instrs.push(Instr::Mov(
                 Val::Reg(Reg::RAX),
-                Val::RegOff(Reg::RBP, *id_stack_offset),
+                Val::RegOff(Reg::RBP, *stack_offset),
             ));
         }
         Expr::UnOp(Op1::Add1, e) => {
             instrs.append(&mut compile_expr(e, ctxt));
-            instrs.append(&mut is_number_with_error(ctxt));
+            instrs.append(&mut is_number_with_error());
             instrs.push(Instr::Add(Val::Reg(Reg::RAX), Val::Imm(1 << 1)));
-            instrs.append(&mut get_num_overflow_instrs(ctxt));
+            instrs.append(&mut get_num_overflow_instrs());
         }
         Expr::UnOp(Op1::Sub1, e) => {
             instrs.append(&mut compile_expr(e, ctxt));
-            instrs.append(&mut is_number_with_error(ctxt));
+            instrs.append(&mut is_number_with_error());
             instrs.push(Instr::Sub(Val::Reg(Reg::RAX), Val::Imm(1 << 1)));
-            instrs.append(&mut get_num_overflow_instrs(ctxt));
+            instrs.append(&mut get_num_overflow_instrs());
         }
         Expr::UnOp(Op1::IsNum, e) => {
             instrs.append(&mut compile_expr(e, ctxt));
             // Set condition codes for whether e is a number
-            instrs.append(&mut is_number(ctxt));
+            instrs.append(&mut is_number());
             // Move false into RAX by default. Conditionally move true into RAX if e is a number
             instrs.push(Instr::Mov(Val::Reg(Reg::RAX), Val::Imm(FALSE_VAL)));
             instrs.push(Instr::Mov(Val::Reg(Reg::RBX), Val::Imm(TRUE_VAL)));
@@ -222,7 +235,7 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<Instr> {
         Expr::UnOp(Op1::IsBool, e) => {
             instrs.append(&mut compile_expr(e, ctxt));
             // Set condition codes for whether e is a Boolean
-            instrs.append(&mut is_boolean(ctxt));
+            instrs.append(&mut is_boolean());
             // Move false into RAX by default. Conditionally move true into RAX if e is a Boolean
             instrs.push(Instr::Mov(Val::Reg(Reg::RAX), Val::Imm(FALSE_VAL)));
             instrs.push(Instr::Mov(Val::Reg(Reg::RBX), Val::Imm(TRUE_VAL)));
@@ -230,79 +243,25 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<Instr> {
         }
         Expr::UnOp(Op1::Print, e) => {
             instrs.append(&mut compile_expr(e, ctxt));
-
-            // Allocate an extra word of space if needed to keep stack pointer aligned
-            let num_saved_words = 3;
-            let stack_index: i64;
-            let alloc_extra_word = (ctxt.si + num_saved_words) % 2 == 1;
-            if alloc_extra_word {
-                stack_index = ctxt.si + 1;
-            } else {
-                stack_index = ctxt.si;
-            }
-
-            // Save RDI on stack
-            instrs.push(Instr::Mov(
-                Val::RegOff(Reg::RBP, stack_index * WORD_SIZE),
-                Val::Reg(Reg::RDI),
-            ));
-
-            // Save RSI on stack
-            instrs.push(Instr::Mov(
-                Val::RegOff(Reg::RBP, (stack_index + 1) * WORD_SIZE),
-                Val::Reg(Reg::RSI),
-            ));
-
-            // Save RDX on stack
-            instrs.push(Instr::Mov(
-                Val::RegOff(Reg::RBP, (stack_index + 2) * WORD_SIZE),
-                Val::Reg(Reg::RDX),
-            ));
-
-            // Move expression result into RDI
             instrs.push(Instr::Mov(Val::Reg(Reg::RDI), Val::Reg(Reg::RAX)));
-
-            let rsp_offset = (stack_index + num_saved_words - 1) * WORD_SIZE;
-            // Move stack pointer
-            instrs.push(Instr::Sub(Val::Reg(Reg::RSP), Val::Imm(rsp_offset)));
-
-            // Call the print function
             instrs.push(Instr::Call("snek_print".to_string()));
-
-            // Reset stack pointer
-            instrs.push(Instr::Add(Val::Reg(Reg::RSP), Val::Imm(rsp_offset)));
-
-            // Restore RDI
-            instrs.push(Instr::Mov(
-                Val::Reg(Reg::RDI),
-                Val::RegOff(Reg::RBP, stack_index * WORD_SIZE),
-            ));
-            // Restore RSI
-            instrs.push(Instr::Mov(
-                Val::Reg(Reg::RSI),
-                Val::RegOff(Reg::RBP, (stack_index + 1) * WORD_SIZE),
-            ));
-            // Restore RDX
-            instrs.push(Instr::Mov(
-                Val::Reg(Reg::RDX),
-                Val::RegOff(Reg::RBP, (stack_index + 2) * WORD_SIZE),
-            ));
-
             // The return value of print function is carried over from evaluating the expression
         }
 
         // Arithmetic binary operations
         Expr::BinOp(op @ (Op2::Plus | Op2::Minus | Op2::Times), e1, e2) => {
-            let stack_offset: i64 = ctxt.si * WORD_SIZE;
-            let e2_ctxt = &Context {
+            let stack_offset: i64 = (ctxt.si + 1) * WORD_SIZE;
+            let next_ctxt = &Context {
                 si: ctxt.si + 1,
                 ..*ctxt
             };
 
             instrs.append(&mut compile_expr(e1, ctxt));
             // If e1 didn't evaluate to a number (LSB is not 0), jump to error code
-            instrs.push(Instr::Test(Val::Reg(Reg::RAX), Val::Imm(1)));
-            instrs.push(Instr::JumpNotZero(INVALID_TYPE_LABEL.to_string()));
+            if !DISABLE_ERROR_CHECKING {
+                instrs.push(Instr::Test(Val::Reg(Reg::RAX), Val::Imm(1)));
+                instrs.push(Instr::JumpNotZero(INVALID_TYPE_LABEL.to_string()));
+            }
 
             // Save result of e1 on stack
             instrs.push(Instr::Mov(
@@ -311,11 +270,13 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<Instr> {
             ));
 
             // e2 instructions
-            instrs.append(&mut compile_expr(e2, e2_ctxt));
+            instrs.append(&mut compile_expr(e2, next_ctxt));
 
             // If e2 didn't evaluate to a number (LSB is not 0), jump to error code
-            instrs.push(Instr::Test(Val::Reg(Reg::RAX), Val::Imm(1)));
-            instrs.push(Instr::JumpNotZero(INVALID_TYPE_LABEL.to_string()));
+            if !DISABLE_ERROR_CHECKING {
+                instrs.push(Instr::Test(Val::Reg(Reg::RAX), Val::Imm(1)));
+                instrs.push(Instr::JumpNotZero(INVALID_TYPE_LABEL.to_string()));
+            }
 
             // Add the appropriate instruction based on the arithmetic operator
             match op {
@@ -350,7 +311,7 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<Instr> {
             }
 
             // Check for overflow
-            instrs.append(&mut get_num_overflow_instrs(ctxt));
+            instrs.append(&mut get_num_overflow_instrs());
         }
 
         // Logical binary operators
@@ -359,8 +320,8 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<Instr> {
             e1,
             e2,
         ) => {
-            let stack_offset: i64 = ctxt.si * WORD_SIZE;
-            let e2_ctxt = &Context {
+            let stack_offset: i64 = (ctxt.si + 1) * WORD_SIZE;
+            let next_ctxt = &Context {
                 si: ctxt.si + 1,
                 ..*ctxt
             };
@@ -373,12 +334,12 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<Instr> {
                 Val::Reg(Reg::RAX),
             ));
 
-            instrs.append(&mut compile_expr(e2, e2_ctxt));
+            instrs.append(&mut compile_expr(e2, next_ctxt));
 
             // Insert instructions based on the type of logical operator
             match op {
                 Op2::Equal => {
-                    instrs.append(&mut are_same_types(stack_offset, ctxt));
+                    instrs.append(&mut are_same_types(stack_offset));
                     // Compare the results of e1 and e2
                     instrs.push(Instr::Cmp(
                         Val::Reg(Reg::RAX),
@@ -421,12 +382,12 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<Instr> {
                     panic!("Duplicate binding");
                 }
 
-                let id_stack_offset = index as i64;
-                let id_stack_index = ctxt.si + id_stack_offset;
+                let stack_index = ctxt.si + 1 + index as i64;
+                let stack_offset = stack_index * WORD_SIZE;
 
                 // Compile the instructions of the let binding.
                 let new_ctxt = Context {
-                    si: id_stack_index,
+                    si: stack_index,
                     env: &new_env,
                     ..*ctxt
                 };
@@ -435,7 +396,7 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<Instr> {
 
                 // Store the let-binded variable on the stack
                 instrs.push(Instr::Mov(
-                    Val::RegOff(Reg::RBP, id_stack_index * WORD_SIZE),
+                    Val::RegOff(Reg::RBP, stack_offset),
                     Val::Reg(Reg::RAX),
                 ));
 
@@ -444,11 +405,11 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<Instr> {
 
                 // Update the environment mapping of identifier -> memory location.
                 // IMPORTANT: This must be done after compiling the let expression.
-                new_env = new_env.update(id.to_string(), id_stack_index * WORD_SIZE);
+                new_env = new_env.update(id.to_string(), stack_offset);
             }
 
             // The body is offset by the number of let bindings at the top level.
-            let body_stack_index = ctxt.si + i64::try_from(bindings.len()).unwrap();
+            let body_stack_index = ctxt.si + bindings.len() as i64;
             let new_ctxt = Context {
                 si: body_stack_index,
                 env: &new_env,
@@ -487,7 +448,7 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<Instr> {
             }
         }
         Expr::Set(name, e) => {
-            let variable_loc = match ctxt.env.get(name) {
+            let stack_offset = match ctxt.env.get(name) {
                 Some(offset) => *offset,
                 None => panic!("Unbound variable identifier {name}"),
             };
@@ -496,7 +457,7 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<Instr> {
             instrs.append(&mut compile_expr(e, ctxt));
             // Update value of variable
             instrs.push(Instr::Mov(
-                Val::RegOff(Reg::RBP, variable_loc),
+                Val::RegOff(Reg::RBP, stack_offset),
                 Val::Reg(Reg::RAX),
             ));
         }
@@ -517,129 +478,96 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<Instr> {
             // The result is in RAX
         }
         Expr::Break(e) => {
-            // If the break label isn't defined, report an error
             if ctxt.break_label.is_empty() {
                 panic!("Error: break without surrounding loop");
             }
 
             instrs.append(&mut compile_expr(e, ctxt));
-            // Jump to endloop label
             instrs.push(Instr::Jump(ctxt.break_label.to_string()));
         }
 
         // Function call
-        Expr::FunCall(funname, args) => {
-            // Check for undefined functions
-            if !ctxt.function_env.contains_key(funname) {
-                panic!("Invalid: undefined function {funname}");
+        Expr::FunCall(name, args) => {
+            if !ctxt.fun_map.contains_key(name) {
+                panic!("Invalid: undefined function {name}");
             }
-            // Check for incorrect number of args
-            let expected_num = ctxt.function_env.get(funname).unwrap().len();
+            let expected_num = ctxt.fun_map.get(name).unwrap().len();
             if expected_num != args.len() {
                 panic!(
-                    "Invalid: function {funname} called with {} args, expected {}",
+                    "Invalid: function {name} called with {} args, expected {}",
                     args.len(),
                     expected_num
                 );
             }
 
-            // Allocate an extra word of space if needed to keep RSP 16-byte aligned
-            let stack_index;
-            let num_saved_words = 3;
-            let allocate_extra_word = (ctxt.si + args.len() as i64 + num_saved_words) % 2 == 1;
-            if allocate_extra_word {
-                stack_index = ctxt.si + 1;
-            } else {
-                stack_index = ctxt.si;
-            }
-
-            // Save RDI on stack
-            instrs.push(Instr::Mov(
-                Val::RegOff(Reg::RBP, stack_index * WORD_SIZE),
-                Val::Reg(Reg::RDI),
-            ));
-
-            // Save RSI on stack
-            instrs.push(Instr::Mov(
-                Val::RegOff(Reg::RBP, (stack_index + 1) * WORD_SIZE),
-                Val::Reg(Reg::RSI),
-            ));
-
-            // Save RDX on stack
-            instrs.push(Instr::Mov(
-                Val::RegOff(Reg::RBP, (stack_index + 2) * WORD_SIZE),
-                Val::Reg(Reg::RDX),
-            ));
-
-            // Evaluate the argument expressions in reverse order and store the results
-            // at decreasing memory addresses on the stack.
-            for (index, arg) in args.iter().rev().enumerate() {
-                let arg_si = stack_index + num_saved_words + index as i64;
-                let arg_offset = arg_si * WORD_SIZE;
-
-                let mut arg_is = compile_expr(
-                    arg,
-                    &Context {
-                        si: arg_si,
-                        ..*ctxt
-                    },
-                );
-                instrs.append(&mut arg_is);
-                // Save argument value on stack
+            let mut curr_ctxt = ctxt.clone();
+            for arg in args {
+                let next_ctxt = Context {
+                    si: curr_ctxt.si + 1,
+                    ..curr_ctxt
+                };
+                instrs.append(&mut compile_expr(arg, &next_ctxt));
                 instrs.push(Instr::Mov(
-                    Val::RegOff(Reg::RBP, arg_offset),
+                    Val::RegOff(Reg::RBP, WORD_SIZE * next_ctxt.si),
                     Val::Reg(Reg::RAX),
                 ));
+                curr_ctxt = next_ctxt;
             }
 
-            // Move the stack pointer to the correct location
-            let rsp_offset = (stack_index + (num_saved_words - 1) + args.len() as i64) * WORD_SIZE;
-            instrs.push(Instr::Sub(Val::Reg(Reg::RSP), Val::Imm(rsp_offset)));
+            let stack_offsets: Vec<i64> = (ctxt.si..ctxt.si + args.len() as i64)
+                .map(|i| WORD_SIZE * (i + 1))
+                .collect();
+
+            let mut fun_args: Vec<Val> = stack_offsets
+                .iter()
+                .map(|off| Val::RegOff(Reg::RBP, *off))
+                .collect();
+
+            // Maintain RSP alignment if needed by pushing an extra value
+            if fun_args.len() % 2 != 0 {
+                fun_args.push(Val::Imm(NIL_VAL));
+            }
+
+            // Push computed arguments onto stack for function call
+            for fun_arg in fun_args.iter().rev() {
+                instrs.push(Instr::Push(*fun_arg));
+            }
 
             // Call function
-            instrs.push(Instr::Call(funname.to_string()));
-
-            // Restore RDI
-            instrs.push(Instr::Mov(
-                Val::Reg(Reg::RDI),
-                Val::RegOff(Reg::RBP, stack_index * WORD_SIZE),
-            ));
-
-            // Restore RSI
-            instrs.push(Instr::Mov(
-                Val::Reg(Reg::RSI),
-                Val::RegOff(Reg::RBP, (stack_index + 1) * WORD_SIZE),
-            ));
-
-            // Restore RDX
-            instrs.push(Instr::Mov(
-                Val::Reg(Reg::RDX),
-                Val::RegOff(Reg::RBP, (stack_index + 2) * WORD_SIZE),
-            ));
-
+            instrs.push(Instr::Call(name.to_string()));
             // Reset stack pointer
-            instrs.push(Instr::Add(Val::Reg(Reg::RSP), Val::Imm(rsp_offset)));
+            instrs.push(Instr::Add(
+                Val::Reg(Reg::RSP),
+                Val::Imm(WORD_SIZE * fun_args.len() as i64),
+            ));
         }
         // Tuples are represented as [tuple size] [first element] [second element] ... [last element]
         // The return value of a tuple expression is 63-bit address to a word in memory
         // containing the size of the tuple. The word after this size metadata is the first element of the tuple.
         Expr::Tuple(args) => {
             // Save the current value of the heap pointer on the stack; this is the return value.
-            let tup_addr_offset = ctxt.si * WORD_SIZE;
+            let tup_addr_offset = (ctxt.si + 1) * WORD_SIZE;
             instrs.push(Instr::Mov(
                 Val::RegOff(Reg::RBP, tup_addr_offset),
                 Val::Reg(Reg::R15),
             ));
-            // Store the size of the tuple on the heap
-            instrs.push(Instr::Mov(
-                Val::Reg(Reg::R12),
-                Val::Imm((args.len() as i64) << 1),
+
+            // Allocate space for the tuple on the heap
+            instrs.push(Instr::Add(
+                Val::Reg(Reg::R15),
+                Val::Imm(WORD_SIZE * (1 + args.len() as i64)),
             ));
-            instrs.push(Instr::Mov(Val::RegOff(Reg::R15, 0), Val::Reg(Reg::R12)));
-            // Update the heap pointer
-            instrs.push(Instr::Add(Val::Reg(Reg::R15), Val::Imm(WORD_SIZE)));
-            // Incrementally evaluate each argument and store it in the heap
-            for arg in args.iter() {
+
+            // Store the size of the tuple
+            instrs.push(Instr::Mov(Val::Reg(Reg::R10), Val::Imm(args.len() as i64)));
+            instrs.push(Instr::Mov(
+                Val::Reg(Reg::RBX),
+                Val::RegOff(Reg::RBP, tup_addr_offset),
+            ));
+            instrs.push(Instr::Mov(Val::RegOff(Reg::RBX, 0), Val::Reg(Reg::R10)));
+
+            // Evaluate each argument and store it in the allocated heap space
+            for (i, arg) in args.iter().enumerate() {
                 instrs.append(&mut compile_expr(
                     arg,
                     &Context {
@@ -647,9 +575,15 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<Instr> {
                         ..*ctxt
                     },
                 ));
-                instrs.push(Instr::Mov(Val::RegOff(Reg::R15, 0), Val::Reg(Reg::RAX)));
-                // Update heap pointer
-                instrs.push(Instr::Add(Val::Reg(Reg::R15), Val::Imm(WORD_SIZE)));
+                instrs.push(Instr::Mov(
+                    Val::Reg(Reg::RBX),
+                    Val::RegOff(Reg::RBP, tup_addr_offset),
+                ));
+                instrs.push(Instr::Add(
+                    Val::Reg(Reg::RBX),
+                    Val::Imm(WORD_SIZE * (1 + i as i64)),
+                ));
+                instrs.push(Instr::Mov(Val::RegOff(Reg::RBX, 0), Val::Reg(Reg::RAX)));
             }
             // Tag the start address of the heap pointer before returning it
             instrs.push(Instr::Mov(
@@ -660,22 +594,23 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<Instr> {
         }
         Expr::Index(addr, offset) => {
             instrs.append(&mut compile_expr(addr, ctxt));
-            // If the address expression did not actually evaluate to an address, error
-            instrs.append(&mut is_heap_address_with_error(ctxt));
+            instrs.append(&mut is_heap_address_with_error());
 
-            // If the address is out of bounds of the heap, error
-            instrs.push(Instr::Cmp(Val::Reg(Reg::RAX), Val::Reg(Reg::RSI)));
+            instrs.push(Instr::Mov(Val::Reg(Reg::RBX), Val::Reg(Reg::RAX)));
+            instrs.push(Instr::Sub(Val::Reg(Reg::RBX), Val::Imm(1)));
+
+            instrs.push(Instr::Cmp(Val::Reg(Reg::RBX), Val::Reg(Reg::R11)));
             instrs.push(Instr::JumpLess(
                 HEAP_ADDRESS_OUT_OF_BOUNDS_LABEL.to_string(),
             ));
 
-            instrs.push(Instr::Cmp(Val::Reg(Reg::RAX), Val::Reg(Reg::RDX)));
-            instrs.push(Instr::JumpGreaterEqual(
+            instrs.push(Instr::Cmp(Val::Reg(Reg::RBX), Val::Reg(Reg::R14)));
+            instrs.push(Instr::JumpGreater(
                 HEAP_ADDRESS_OUT_OF_BOUNDS_LABEL.to_string(),
             ));
 
             // Save the address on the stack
-            let addr_offset = ctxt.si * WORD_SIZE;
+            let addr_offset = (ctxt.si + 1) * WORD_SIZE;
             instrs.push(Instr::Mov(
                 Val::RegOff(Reg::RBP, addr_offset),
                 Val::Reg(Reg::RAX),
@@ -689,8 +624,11 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<Instr> {
                 },
             ));
             // If the offset expression did not actually evaluate to a number, error.
-            instrs.append(&mut is_number(ctxt));
+            instrs.append(&mut is_number());
             instrs.push(Instr::JumpNotEqual(NOT_INDEX_OFFSET_LABEL.to_string()));
+
+            // Convert the offset to its actual number representation
+            instrs.push(Instr::Sar(Val::Reg(Reg::RAX), Val::Imm(1)));
 
             // Unmask the address by clearing the LSB
             instrs.push(Instr::Mov(
@@ -700,18 +638,14 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<Instr> {
             instrs.push(Instr::Sub(Val::Reg(Reg::RBX), Val::Imm(1)));
 
             // Get the tuple size at the address
-            instrs.push(Instr::Mov(Val::Reg(Reg::R12), Val::RegOff(Reg::RBX, 0)));
-            // If offset size >= tuple size, jump to error
-            instrs.push(Instr::Cmp(Val::Reg(Reg::RAX), Val::Reg(Reg::R12)));
+            instrs.push(Instr::Mov(Val::Reg(Reg::R10), Val::RegOff(Reg::RBX, 0)));
+            instrs.push(Instr::Cmp(Val::Reg(Reg::RAX), Val::Reg(Reg::R10)));
             instrs.push(Instr::JumpGreaterEqual(
                 INDEX_OUT_OF_BOUNDS_LABEL.to_string(),
             ));
-            // If offset size < 0, jump to error
             instrs.push(Instr::Cmp(Val::Reg(Reg::RAX), Val::Imm(0)));
             instrs.push(Instr::JumpLess(INDEX_OUT_OF_BOUNDS_LABEL.to_string()));
 
-            // Convert the offset to its actual value
-            instrs.push(Instr::Sar(Val::Reg(Reg::RAX), Val::Imm(1)));
             // Add 1 because the address is currently at the tuple size, not the first element.
             instrs.push(Instr::Add(Val::Reg(Reg::RAX), Val::Imm(1)));
             // Multiply the offset by the word size
@@ -726,7 +660,7 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<Instr> {
 }
 
 // Returns error labels and instructions
-fn compile_error_instrs(indentation: usize) -> Vec<Instr> {
+fn compile_error_instrs() -> Vec<Instr> {
     let mut error_instrs: Vec<Instr> = Vec::new();
 
     error_instrs.append(&mut get_error_instrs(ERR_NUM_OVERFLOW));
@@ -741,30 +675,33 @@ fn compile_error_instrs(indentation: usize) -> Vec<Instr> {
 
 // Get the instructions for the error handler for the given error code
 fn get_error_instrs(errcode: i64) -> Vec<Instr> {
+    if DISABLE_ERROR_CHECKING {
+        return Vec::new();
+    }
     let mut instrs: Vec<Instr> = Vec::new();
 
     match errcode {
         ERR_NUM_OVERFLOW => {
-            instrs.push(Instr::Label(NUM_OVERFLOW_LABEL.to_string()));
+            instrs.push(Instr::Label(String::from(NUM_OVERFLOW_LABEL)));
         }
         ERR_INVALID_TYPE => {
-            instrs.push(Instr::Label(INVALID_TYPE_LABEL.to_string()));
+            instrs.push(Instr::Label(String::from(INVALID_TYPE_LABEL)));
         }
-        ERR_INDEX_OUT_OF_BOUNDS => instrs.push(Instr::Label(INDEX_OUT_OF_BOUNDS_LABEL.to_string())),
-        ERR_NOT_HEAP_ADDRESS => instrs.push(Instr::Label(NOT_HEAP_ADDRESS_LABEL.to_string())),
-        ERR_NOT_INDEX_OFFSET => instrs.push(Instr::Label(NOT_INDEX_OFFSET_LABEL.to_string())),
+        ERR_INDEX_OUT_OF_BOUNDS => {
+            instrs.push(Instr::Label(String::from(INDEX_OUT_OF_BOUNDS_LABEL)))
+        }
+
+        ERR_NOT_HEAP_ADDRESS => instrs.push(Instr::Label(String::from(NOT_HEAP_ADDRESS_LABEL))),
+        ERR_NOT_INDEX_OFFSET => instrs.push(Instr::Label(String::from(NOT_INDEX_OFFSET_LABEL))),
         ERR_HEAP_ADDRESS_OUT_OF_BOUNDS => {
-            instrs.push(Instr::Label(HEAP_ADDRESS_OUT_OF_BOUNDS_LABEL.to_string()))
+            instrs.push(Instr::Label(String::from(HEAP_ADDRESS_OUT_OF_BOUNDS_LABEL)))
         }
 
         _ => panic!("Unknown error code: {errcode}"),
     }
 
     // Pass error code as first function argument to snek_error
-    instrs.push(Instr::Mov(Val::Reg(Reg::RDI), Val::Imm(errcode)));
-
-    // Save stack pointer of current function onto stack
-    instrs.push(Instr::Push(Val::Reg(Reg::RSP)));
+    instrs.push(Instr::Mov(Val::Reg(Reg::EDI), Val::Imm(errcode)));
 
     // Call snek_error
     instrs.push(Instr::Call("snek_error".to_string()));
@@ -791,14 +728,18 @@ fn get_new_label(s: &str) -> String {
 // Sets condition codes with a CMP indicating the result of the inequality comparison.
 // RAX contains false and RBX contains true.
 fn get_inequality_instrs(ctxt: &Context) -> Vec<Instr> {
+    if DISABLE_ERROR_CHECKING {
+        return Vec::new();
+    }
     let mut instrs: Vec<Instr> = Vec::new();
-    let stack_offset = ctxt.si * WORD_SIZE;
+    let stack_offset = (ctxt.si + 1) * WORD_SIZE;
 
     // Move the result of e2 into RBX for the type check
     instrs.push(Instr::Mov(Val::Reg(Reg::RBX), Val::Reg(Reg::RAX)));
 
     // Check that both operands are of the integer type.
     // e1 OR e2 has a 0 as the LSB if both are integers, 1 otherwise.
+
     instrs.push(Instr::Or(
         Val::Reg(Reg::RBX),
         Val::RegOff(Reg::RBP, stack_offset),
@@ -824,7 +765,10 @@ fn get_inequality_instrs(ctxt: &Context) -> Vec<Instr> {
 }
 
 // Returns a vector of instructions that jumps to the numerical overflow error label
-fn get_num_overflow_instrs(ctxt: &Context) -> Vec<Instr> {
+fn get_num_overflow_instrs() -> Vec<Instr> {
+    if DISABLE_ERROR_CHECKING {
+        return Vec::new();
+    }
     let mut instrs: Vec<Instr> = Vec::new();
     instrs.push(Instr::JumpOverflow(NUM_OVERFLOW_LABEL.to_string()));
     return instrs;
@@ -832,7 +776,10 @@ fn get_num_overflow_instrs(ctxt: &Context) -> Vec<Instr> {
 
 // Returns a vector of instructions that checks whether the current value in RAX is a number.
 // Uses RBX for intermediate computation, and does a CMP that sets condition codes.
-fn is_number(ctxt: &Context) -> Vec<Instr> {
+fn is_number() -> Vec<Instr> {
+    if DISABLE_ERROR_CHECKING {
+        return Vec::new();
+    }
     let mut instrs = Vec::new();
     instrs.push(Instr::Mov(Val::Reg(Reg::RBX), Val::Reg(Reg::RAX)));
     instrs.push(Instr::Not(Val::Reg(Reg::RBX)));
@@ -843,16 +790,22 @@ fn is_number(ctxt: &Context) -> Vec<Instr> {
 
 // Returns a vector of instructions that checks whether the current value in RAX
 // is a number. Throws an error if this value is not a number, otherwise continues.
-fn is_number_with_error(ctxt: &Context) -> Vec<Instr> {
+fn is_number_with_error() -> Vec<Instr> {
+    if DISABLE_ERROR_CHECKING {
+        return Vec::new();
+    }
     let mut instrs = Vec::new();
-    instrs.append(&mut is_number(ctxt));
+    instrs.append(&mut is_number());
     instrs.push(Instr::JumpNotEqual(INVALID_TYPE_LABEL.to_string()));
     return instrs;
 }
 
 // Returns a vector of instructions that checks whether the current value in RAX is a Boolean.
 // Uses RBX for intermediate computation, and does a CMP that sets condition codes.
-fn is_boolean(ctxt: &Context) -> Vec<Instr> {
+fn is_boolean() -> Vec<Instr> {
+    if DISABLE_ERROR_CHECKING {
+        return Vec::new();
+    }
     let mut instrs = Vec::new();
     instrs.push(Instr::Mov(Val::Reg(Reg::RBX), Val::Reg(Reg::RAX)));
 
@@ -867,7 +820,10 @@ fn is_boolean(ctxt: &Context) -> Vec<Instr> {
 
 // Returns a vector of instructions that checks whether the current value in RAX is a heap address.
 // Uses RBX for intermediate computation, and does a CMP that sets condition codes.
-fn is_heap_address(ctxt: &Context) -> Vec<Instr> {
+fn is_heap_address() -> Vec<Instr> {
+    if DISABLE_ERROR_CHECKING {
+        return Vec::new();
+    }
     let mut instrs = Vec::new();
     instrs.push(Instr::Mov(Val::Reg(Reg::RBX), Val::Reg(Reg::RAX)));
     instrs.push(Instr::And(Val::Reg(Reg::RBX), Val::Imm(1)));
@@ -877,9 +833,22 @@ fn is_heap_address(ctxt: &Context) -> Vec<Instr> {
 
 // Returns a vector of instructions that checks whether the current value in RAX
 // is a heap address. Throws an error if not, otherwise continues.
-fn is_heap_address_with_error(ctxt: &Context) -> Vec<Instr> {
+fn is_heap_address_with_error() -> Vec<Instr> {
+    if DISABLE_ERROR_CHECKING {
+        return Vec::new();
+    }
     let mut instrs = Vec::new();
-    instrs.append(&mut is_heap_address(ctxt));
+    instrs.append(&mut is_heap_address());
+
+    // instrs.push(Instr::Mov(Val::Reg(Reg::RDI), Val::Reg(Reg::RSI)));
+    // instrs.push(Instr::Add(Val::Reg(Reg::RDI), Val::Imm(1)));
+
+    // instrs.push(Instr::Call(String::from("snek_print")));
+
+    // instrs.push(Instr::Mov(Val::Reg(Reg::RDI), Val::Reg(Reg::RDX)));
+    // instrs.push(Instr::Add(Val::Reg(Reg::RDI), Val::Imm(1)));
+    // instrs.push(Instr::Call(String::from("snek_print")));
+
     instrs.push(Instr::JumpNotEqual(NOT_HEAP_ADDRESS_LABEL.to_string()));
     return instrs;
 }
@@ -887,7 +856,10 @@ fn is_heap_address_with_error(ctxt: &Context) -> Vec<Instr> {
 // Returns a vector of instructions that checks whether the current value in RAX
 // and the next value on the stack at lower memory are the same type. If the types are different,
 // jumps to error code; otherwise, continues.
-fn are_same_types(stack_offset: i64, ctxt: &Context) -> Vec<Instr> {
+fn are_same_types(stack_offset: i64) -> Vec<Instr> {
+    if DISABLE_ERROR_CHECKING {
+        return Vec::new();
+    }
     let mut instrs = Vec::new();
     // Move the contents of RAX into RBX
     instrs.push(Instr::Mov(Val::Reg(Reg::RBX), Val::Reg(Reg::RAX)));
@@ -917,12 +889,12 @@ fn are_same_types(stack_offset: i64, ctxt: &Context) -> Vec<Instr> {
 
     // If LSB(rax) XOR LSB(result) = 0b11, type error
     // Get the LSB of RAX into R11
-    instrs.push(Instr::Mov(Val::Reg(Reg::R12), Val::Reg(Reg::RAX)));
-    instrs.push(Instr::And(Val::Reg(Reg::R12), Val::Imm(1)));
+    instrs.push(Instr::Mov(Val::Reg(Reg::R10), Val::Reg(Reg::RAX)));
+    instrs.push(Instr::And(Val::Reg(Reg::R10), Val::Imm(1)));
     // Clear all but the lower two bits of RBX
     instrs.push(Instr::And(Val::Reg(Reg::RBX), Val::Imm(0b11)));
-    instrs.push(Instr::Xor(Val::Reg(Reg::R12), Val::Reg(Reg::RBX)));
-    instrs.push(Instr::Cmp(Val::Reg(Reg::R12), Val::Imm(0b11)));
+    instrs.push(Instr::Xor(Val::Reg(Reg::R10), Val::Reg(Reg::RBX)));
+    instrs.push(Instr::Cmp(Val::Reg(Reg::R10), Val::Imm(0b11)));
     instrs.push(Instr::JumpEqual(INVALID_TYPE_LABEL.to_string()));
 
     return instrs;

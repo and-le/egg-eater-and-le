@@ -1,5 +1,5 @@
 // Assembly values
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum Val {
     Reg(Reg),
     Imm(i64),
@@ -15,13 +15,16 @@ pub enum Reg {
     RDI, // first function arg, caller-saved
     RSI, // second function arg, caller-saved
     RDX, // third function arg, caller-saved
-    RSP, // stack pointer, callee-saved
-    RBP, // base pointer, callee-saved
-    RBX, // local variable, callee-saved
-    R12, // local variable, callee-saved
-    R13, // local variable, callee-saved
-    R14, // local variable, callee-saved
-    R15, // heap pointer, callee-saved
+    RSP, // stack pointer
+    RBP, // base pointer
+    RBX, // scratch register
+    R10, // scratch register
+    R11, // heap start
+    R12, // stack base
+    R13, // stores "input"
+    R14, // heap end
+    R15, // heap pointer
+    EDI, // first input for snek_error
 }
 
 // Assembly instructions
@@ -63,6 +66,7 @@ pub enum Instr {
     JumpEqual(String),
     JumpNotEqual(String),
     JumpNotZero(String),
+    JumpGreater(String),
     JumpGreaterEqual(String),
     JumpLess(String),
     JumpOverflow(String),
@@ -78,7 +82,11 @@ pub enum Instr {
 pub fn instr_to_str(instr: &Instr) -> String {
     match instr {
         // Mov
-        Instr::Mov(val1, val2) => format!("mov {}, {}", val_to_str(val1), val_to_str(val2)),
+        Instr::Mov(Val::Reg(Reg::EDI), Val::Imm(i)) => format!("mov edi, {i}"),
+        Instr::Mov(val1, val2) => match val2 {
+            Val::Imm(_) => format!("mov qword {}, {}", val_to_str(val1), val_to_str(val2)),
+            _ => format!("mov {}, {}", val_to_str(val1), val_to_str(val2)),
+        },
         // Arithmetic
         Instr::Add(val1, val2) => format!("add {}, {}", val_to_str(val1), val_to_str(val2)),
         Instr::Sub(val1, val2) => format!("sub {}, {}", val_to_str(val1), val_to_str(val2)),
@@ -104,6 +112,7 @@ pub fn instr_to_str(instr: &Instr) -> String {
         Instr::JumpEqual(label) => format!("je {label}"),
         Instr::JumpNotEqual(label) => format!("jne {label}"),
         Instr::JumpNotZero(label) => format!("jnz {label}"),
+        Instr::JumpGreater(label) => format!("jg {label}"),
         Instr::JumpGreaterEqual(label) => format!("jge {label}"),
         Instr::JumpLess(label) => format!("jl {label}"),
         Instr::JumpOverflow(label) => format!("jo {label}"),
@@ -112,7 +121,7 @@ pub fn instr_to_str(instr: &Instr) -> String {
             format!("sar {}, {}", val_to_str(src), val_to_str(shift_amount))
         }
         // Function calling
-        Instr::Push(val) => format!("push {}", val_to_str(val)),
+        Instr::Push(val) => format!("push qword {}", val_to_str(val)),
         Instr::Pop(val) => format!("pop {}", val_to_str(val)),
         Instr::Call(label) => format!("call {label}"),
         Instr::Ret() => format!("ret"),
@@ -130,51 +139,66 @@ fn val_to_str(val: &Val) -> String {
         Val::Reg(Reg::RDX) => format!("rdx"),
         Val::Reg(Reg::RSP) => format!("rsp"),
         Val::Reg(Reg::RBP) => format!("rbp"),
+        Val::Reg(Reg::R10) => format!("r10"),
+        Val::Reg(Reg::R11) => format!("r11"),
         Val::Reg(Reg::R12) => format!("r12"),
         Val::Reg(Reg::R13) => format!("r13"),
         Val::Reg(Reg::R14) => format!("r14"),
         Val::Reg(Reg::R15) => format!("r15"),
+        Val::Reg(Reg::EDI) => format!("edi"),
 
         Val::RegOff(Reg::RAX, offset) => {
             if *offset > 0 {
                 format!("[rax - {offset}]")
-            } else {
+            } else if *offset < 0 {
                 format!("[rax + {}]", -1 * offset)
+            } else {
+                format!("[rax]")
             }
         }
         Val::RegOff(Reg::RSP, offset) => {
             if *offset > 0 {
                 format!("[rsp - {offset}]")
-            } else {
+            } else if *offset < 0 {
                 format!("[rsp + {}]", -1 * offset)
+            } else {
+                format!("[rsp]")
             }
         }
         Val::RegOff(Reg::RBP, offset) => {
             if *offset > 0 {
                 format!("[rbp - {offset}]")
-            } else {
+            } else if *offset < 0 {
                 format!("[rbp + {}]", -1 * offset)
+            } else {
+                format!("[rbp]")
             }
         }
         Val::RegOff(Reg::RBX, offset) => {
             if *offset > 0 {
                 format!("[rbx - {offset}]")
-            } else {
+            } else if *offset < 0 {
                 format!("[rbx + {}]", -1 * offset)
+            } else {
+                format!("[rbx]")
             }
         }
-        Val::RegOff(Reg::R12, offset) => {
+        Val::RegOff(Reg::R10, offset) => {
             if *offset > 0 {
-                format!("[r12 - {offset}]")
+                format!("[r10 - {offset}]")
+            } else if *offset < 0 {
+                format!("[r10 + {}]", -1 * offset)
             } else {
-                format!("[r12 + {}]", -1 * offset)
+                format!("[r10]")
             }
         }
         Val::RegOff(Reg::R15, offset) => {
             if *offset > 0 {
                 format!("[r15 - {offset}]")
-            } else {
+            } else if *offset < 0 {
                 format!("[r15 + {}]", -1 * offset)
+            } else {
+                format!("[r15]")
             }
         }
 
