@@ -3,7 +3,7 @@
  */
 
 // Unary operators
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum Op1 {
     Add1,
     Sub1,
@@ -13,7 +13,7 @@ pub enum Op1 {
 }
 
 // Binary operators
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum Op2 {
     Plus,
     Minus,

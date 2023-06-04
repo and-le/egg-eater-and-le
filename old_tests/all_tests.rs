@@ -1,5 +1,4 @@
 mod infra;
-
 success_tests! {
     // Number and Boolean Literals
     {

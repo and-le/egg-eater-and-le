@@ -15,9 +15,6 @@ success_tests! {
         file: "bst.snek",
         expected: "(tuple 50 nil nil)\n(tuple 50 (tuple 25 nil nil) nil)\n(tuple 50 (tuple 25 nil nil) (tuple 75 nil nil))\n(tuple 50 (tuple 25 nil nil) (tuple 75 nil (tuple 100 nil nil)))\n(tuple 50 (tuple 25 (tuple 0 nil nil) nil) (tuple 75 nil (tuple 100 nil nil)))\ntrue\ntrue\ntrue\nfalse\nfalse\nfalse"
     },
-
-
-
 }
 
 runtime_error_tests! {

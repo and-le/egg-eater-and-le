@@ -1,8 +1,27 @@
-(fun (is_positive x)
-    (> x 0)
+(fun (add3 a b c)
+    (let ( (x a) (y b) (z c) ) (+ (+ x y) z) )
 )
 
-(block 
-    (print (is_positive 10))
-    (+ 20 30)
+
+(fun (mul3 a b c)
+    (let ( (x a) (y b) (z c) ) (* (* x y) z) )
+)
+
+(fun (max a b)
+    (if (> a b) 
+        a 
+        b
+    )
+)
+
+(block
+    (let ( (a 10) (b 20) (c 30) )
+        (
+            let ( (d (add3 a b c)) )
+                (
+                    let ( (e (mul3 a b c) ) )
+                        (max d e)
+                )
+        )
+    )
 )

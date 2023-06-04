@@ -62,12 +62,12 @@ pub fn compile_program(prog: &Program, start_label: String) -> Vec<Instr> {
         Val::Reg(Reg::R12),
         Val::Reg(Reg::R13),
     ];
-    instrs.append(&mut fun_entry(locals, &callee_saved));
-    instrs.push(Instr::Mov(Val::Reg(Reg::R13), Val::Reg(Reg::RDI)));
-    instrs.push(Instr::Mov(Val::Reg(Reg::R15), Val::Reg(Reg::RSI)));
 
-    instrs.push(Instr::Mov(Val::Reg(Reg::R11), Val::Reg(Reg::RSI)));
+    instrs.append(&mut fun_entry(locals, &callee_saved));
+    instrs.push(Instr::Mov(Val::Reg(Reg::R15), Val::Reg(Reg::RSI)));
+    instrs.push(Instr::Mov(Val::Reg(Reg::R13), Val::Reg(Reg::RDI)));
     instrs.push(Instr::Mov(Val::Reg(Reg::R14), Val::Reg(Reg::RDX)));
+    instrs.push(Instr::Mov(Val::Reg(Reg::R11), Val::Reg(Reg::RSI)));
 
     // Main body
     instrs.append(&mut compile_expr(
@@ -103,6 +103,7 @@ fn compile_fun(fun: &Definition, fun_map: &HashMap<String, Vec<String>>) -> Vec<
     instrs.push(Instr::Label(fun.name.to_string()));
     instrs.append(&mut fun_entry(locals, callee_saved));
 
+    // The " + 2 " skips over the saved RBP and return address
     let env: HashMap<String, i64> = fun
         .params
         .iter()
@@ -180,6 +181,7 @@ fn frame_size(locals: u32, callee_saved: &[Val]) -> u32 {
 // Recursively compiles an expression into a list of assembly instruction
 fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<Instr> {
     let mut instrs: Vec<Instr> = Vec::new();
+    // println!("Expr is {:?}, si is {}", expr, ctxt.si);
 
     match expr {
         Expr::Number(num) => {
@@ -211,167 +213,8 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<Instr> {
                 Val::RegOff(Reg::RBP, *stack_offset),
             ));
         }
-        Expr::UnOp(Op1::Add1, e) => {
-            instrs.append(&mut compile_expr(e, ctxt));
-            instrs.append(&mut is_number_with_error());
-            instrs.push(Instr::Add(Val::Reg(Reg::RAX), Val::Imm(1 << 1)));
-            instrs.append(&mut get_num_overflow_instrs());
-        }
-        Expr::UnOp(Op1::Sub1, e) => {
-            instrs.append(&mut compile_expr(e, ctxt));
-            instrs.append(&mut is_number_with_error());
-            instrs.push(Instr::Sub(Val::Reg(Reg::RAX), Val::Imm(1 << 1)));
-            instrs.append(&mut get_num_overflow_instrs());
-        }
-        Expr::UnOp(Op1::IsNum, e) => {
-            instrs.append(&mut compile_expr(e, ctxt));
-            // Set condition codes for whether e is a number
-            instrs.append(&mut is_number());
-            // Move false into RAX by default. Conditionally move true into RAX if e is a number
-            instrs.push(Instr::Mov(Val::Reg(Reg::RAX), Val::Imm(FALSE_VAL)));
-            instrs.push(Instr::Mov(Val::Reg(Reg::RBX), Val::Imm(TRUE_VAL)));
-            instrs.push(Instr::CMove(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)));
-        }
-        Expr::UnOp(Op1::IsBool, e) => {
-            instrs.append(&mut compile_expr(e, ctxt));
-            // Set condition codes for whether e is a Boolean
-            instrs.append(&mut is_boolean());
-            // Move false into RAX by default. Conditionally move true into RAX if e is a Boolean
-            instrs.push(Instr::Mov(Val::Reg(Reg::RAX), Val::Imm(FALSE_VAL)));
-            instrs.push(Instr::Mov(Val::Reg(Reg::RBX), Val::Imm(TRUE_VAL)));
-            instrs.push(Instr::CMove(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)));
-        }
-        Expr::UnOp(Op1::Print, e) => {
-            instrs.append(&mut compile_expr(e, ctxt));
-            instrs.push(Instr::Mov(Val::Reg(Reg::RDI), Val::Reg(Reg::RAX)));
-            instrs.push(Instr::Call("snek_print".to_string()));
-            // The return value of print function is carried over from evaluating the expression
-        }
-
-        // Arithmetic binary operations
-        Expr::BinOp(op @ (Op2::Plus | Op2::Minus | Op2::Times), e1, e2) => {
-            let stack_offset: i64 = (ctxt.si + 1) * WORD_SIZE;
-            let next_ctxt = &Context {
-                si: ctxt.si + 1,
-                ..*ctxt
-            };
-
-            instrs.append(&mut compile_expr(e1, ctxt));
-            // If e1 didn't evaluate to a number (LSB is not 0), jump to error code
-            if !DISABLE_ERROR_CHECKING {
-                instrs.push(Instr::Test(Val::Reg(Reg::RAX), Val::Imm(1)));
-                instrs.push(Instr::JumpNotZero(INVALID_TYPE_LABEL.to_string()));
-            }
-
-            // Save result of e1 on stack
-            instrs.push(Instr::Mov(
-                Val::RegOff(Reg::RBP, stack_offset),
-                Val::Reg(Reg::RAX),
-            ));
-
-            // e2 instructions
-            instrs.append(&mut compile_expr(e2, next_ctxt));
-
-            // If e2 didn't evaluate to a number (LSB is not 0), jump to error code
-            if !DISABLE_ERROR_CHECKING {
-                instrs.push(Instr::Test(Val::Reg(Reg::RAX), Val::Imm(1)));
-                instrs.push(Instr::JumpNotZero(INVALID_TYPE_LABEL.to_string()));
-            }
-
-            // Add the appropriate instruction based on the arithmetic operator
-            match op {
-                Op2::Plus => {
-                    instrs.push(Instr::Add(
-                        Val::Reg(Reg::RAX),
-                        Val::RegOff(Reg::RBP, stack_offset),
-                    ));
-                }
-                Op2::Minus => {
-                    // Move result of e2 from rax into rbx
-                    instrs.push(Instr::Mov(Val::Reg(Reg::RBX), Val::Reg(Reg::RAX)));
-
-                    // Move result of e1 from stack into rax
-                    instrs.push(Instr::Mov(
-                        Val::Reg(Reg::RAX),
-                        Val::RegOff(Reg::RBP, stack_offset),
-                    ));
-                    // Do [rax] - [rbx]
-                    instrs.push(Instr::Sub(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)));
-                }
-                Op2::Times => {
-                    // For multiplication, shift the result of e2 right 1 bit.
-                    instrs.push(Instr::Sar(Val::Reg(Reg::RAX), Val::Imm(1)));
-
-                    instrs.push(Instr::Mul(
-                        Val::Reg(Reg::RAX),
-                        Val::RegOff(Reg::RBP, stack_offset),
-                    ));
-                }
-                _ => panic!("Should not panic here: {op:?}"),
-            }
-
-            // Check for overflow
-            instrs.append(&mut get_num_overflow_instrs());
-        }
-
-        // Logical binary operators
-        Expr::BinOp(
-            op @ (Op2::Equal | Op2::Greater | Op2::GreaterEqual | Op2::Less | Op2::LessEqual),
-            e1,
-            e2,
-        ) => {
-            let stack_offset: i64 = (ctxt.si + 1) * WORD_SIZE;
-            let next_ctxt = &Context {
-                si: ctxt.si + 1,
-                ..*ctxt
-            };
-
-            instrs.append(&mut compile_expr(e1, ctxt));
-
-            // Save result of e1_instrs on stack
-            instrs.push(Instr::Mov(
-                Val::RegOff(Reg::RBP, stack_offset),
-                Val::Reg(Reg::RAX),
-            ));
-
-            instrs.append(&mut compile_expr(e2, next_ctxt));
-
-            // Insert instructions based on the type of logical operator
-            match op {
-                Op2::Equal => {
-                    instrs.append(&mut are_same_types(stack_offset));
-                    // Compare the results of e1 and e2
-                    instrs.push(Instr::Cmp(
-                        Val::Reg(Reg::RAX),
-                        Val::RegOff(Reg::RBP, stack_offset),
-                    ));
-
-                    // Move true into RBX for the conditional move below
-                    instrs.push(Instr::Mov(Val::Reg(Reg::RBX), Val::Imm(TRUE_VAL)));
-                    // By default, move false into RAX.
-                    // If the equality comparison was true, we conditionally move true into RAX.
-                    instrs.push(Instr::Mov(Val::Reg(Reg::RAX), Val::Imm(FALSE_VAL)));
-                    instrs.push(Instr::CMove(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)));
-                }
-                Op2::Greater => {
-                    instrs.append(&mut get_inequality_instrs(ctxt));
-                    instrs.push(Instr::CMovg(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)))
-                }
-                Op2::GreaterEqual => {
-                    instrs.append(&mut get_inequality_instrs(ctxt));
-                    instrs.push(Instr::CMovge(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)))
-                }
-                Op2::Less => {
-                    instrs.append(&mut get_inequality_instrs(ctxt));
-                    instrs.push(Instr::CMovl(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)));
-                }
-                Op2::LessEqual => {
-                    instrs.append(&mut get_inequality_instrs(ctxt));
-                    instrs.push(Instr::CMovle(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)));
-                }
-                _ => panic!("Should never panic here: {op:?}"),
-            }
-        }
+        Expr::UnOp(op, e) => instrs.append(&mut compile_unary_op(*op, e, ctxt)),
+        Expr::BinOp(op, e1, e2) => instrs.append(&mut compile_binary_op(*op, e1, e2, ctxt)),
 
         Expr::Let(bindings, body) => {
             let mut new_env: HashMap<String, i64> = ctxt.env.clone();
@@ -387,7 +230,7 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<Instr> {
 
                 // Compile the instructions of the let binding.
                 let new_ctxt = Context {
-                    si: stack_index,
+                    si: ctxt.si + index as i64,
                     env: &new_env,
                     ..*ctxt
                 };
@@ -475,13 +318,11 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<Instr> {
             ));
             instrs.push(Instr::Jump(start_label.clone()));
             instrs.push(Instr::Label(end_label.clone()));
-            // The result is in RAX
         }
         Expr::Break(e) => {
             if ctxt.break_label.is_empty() {
                 panic!("Error: break without surrounding loop");
             }
-
             instrs.append(&mut compile_expr(e, ctxt));
             instrs.push(Instr::Jump(ctxt.break_label.to_string()));
         }
@@ -517,6 +358,9 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<Instr> {
             let stack_offsets: Vec<i64> = (ctxt.si..ctxt.si + args.len() as i64)
                 .map(|i| WORD_SIZE * (i + 1))
                 .collect();
+
+            // println!("Function call to {name}");
+            // println!("stack offsets is {:?}", stack_offsets);
 
             let mut fun_args: Vec<Val> = stack_offsets
                 .iter()
@@ -596,18 +440,18 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<Instr> {
             instrs.append(&mut compile_expr(addr, ctxt));
             instrs.append(&mut is_heap_address_with_error());
 
-            instrs.push(Instr::Mov(Val::Reg(Reg::RBX), Val::Reg(Reg::RAX)));
-            instrs.push(Instr::Sub(Val::Reg(Reg::RBX), Val::Imm(1)));
+            // instrs.push(Instr::Mov(Val::Reg(Reg::RBX), Val::Reg(Reg::RAX)));
+            // instrs.push(Instr::Sub(Val::Reg(Reg::RBX), Val::Imm(1)));
 
-            instrs.push(Instr::Cmp(Val::Reg(Reg::RBX), Val::Reg(Reg::R11)));
-            instrs.push(Instr::JumpLess(
-                HEAP_ADDRESS_OUT_OF_BOUNDS_LABEL.to_string(),
-            ));
+            // instrs.push(Instr::Cmp(Val::Reg(Reg::RBX), Val::Reg(Reg::RSI)));
+            // instrs.push(Instr::JumpLess(
+            //     HEAP_ADDRESS_OUT_OF_BOUNDS_LABEL.to_string(),
+            // ));
 
-            instrs.push(Instr::Cmp(Val::Reg(Reg::RBX), Val::Reg(Reg::R14)));
-            instrs.push(Instr::JumpGreater(
-                HEAP_ADDRESS_OUT_OF_BOUNDS_LABEL.to_string(),
-            ));
+            // instrs.push(Instr::Cmp(Val::Reg(Reg::RBX), Val::Reg(Reg::RDX)));
+            // instrs.push(Instr::JumpGreater(
+            //     HEAP_ADDRESS_OUT_OF_BOUNDS_LABEL.to_string(),
+            // ));
 
             // Save the address on the stack
             let addr_offset = (ctxt.si + 1) * WORD_SIZE;
@@ -671,6 +515,177 @@ fn compile_error_instrs() -> Vec<Instr> {
     error_instrs.append(&mut get_error_instrs(ERR_HEAP_ADDRESS_OUT_OF_BOUNDS));
 
     return error_instrs;
+}
+
+// Helper for unary operators
+fn compile_unary_op(op: Op1, e: &Expr, ctxt: &Context) -> Vec<Instr> {
+    let mut instrs = Vec::new();
+    match op {
+        Op1::Add1 => {
+            instrs.append(&mut compile_expr(e, ctxt));
+            instrs.append(&mut is_number_with_error());
+            instrs.push(Instr::Add(Val::Reg(Reg::RAX), Val::Imm(1 << 1)));
+            instrs.append(&mut get_num_overflow_instrs());
+        }
+        Op1::Sub1 => {
+            instrs.append(&mut compile_expr(e, ctxt));
+            instrs.append(&mut is_number_with_error());
+            instrs.push(Instr::Sub(Val::Reg(Reg::RAX), Val::Imm(1 << 1)));
+            instrs.append(&mut get_num_overflow_instrs());
+        }
+        Op1::IsNum => {
+            instrs.append(&mut compile_expr(e, ctxt));
+            // Set condition codes for whether e is a number
+            instrs.append(&mut is_number());
+            // Move false into RAX by default. Conditionally move true into RAX if e is a number
+            instrs.push(Instr::Mov(Val::Reg(Reg::RAX), Val::Imm(FALSE_VAL)));
+            instrs.push(Instr::Mov(Val::Reg(Reg::RBX), Val::Imm(TRUE_VAL)));
+            instrs.push(Instr::CMove(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)));
+        }
+        Op1::IsBool => {
+            instrs.append(&mut compile_expr(e, ctxt));
+            // Set condition codes for whether e is a Boolean
+            instrs.append(&mut is_boolean());
+            // Move false into RAX by default. Conditionally move true into RAX if e is a Boolean
+            instrs.push(Instr::Mov(Val::Reg(Reg::RAX), Val::Imm(FALSE_VAL)));
+            instrs.push(Instr::Mov(Val::Reg(Reg::RBX), Val::Imm(TRUE_VAL)));
+            instrs.push(Instr::CMove(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)));
+        }
+        Op1::Print => {
+            instrs.append(&mut compile_expr(e, ctxt));
+            instrs.push(Instr::Mov(Val::Reg(Reg::RDI), Val::Reg(Reg::RAX)));
+            instrs.push(Instr::Call("snek_print".to_string()));
+            // The return value of print function is carried over from evaluating the expression
+        }
+    }
+    return instrs;
+}
+
+// Helper for binary operators
+fn compile_binary_op(op: Op2, e1: &Expr, e2: &Expr, ctxt: &Context) -> Vec<Instr> {
+    let mut instrs = Vec::new();
+    match op {
+        // Arithmetic binary operations
+        Op2::Plus | Op2::Minus | Op2::Times => {
+            let stack_offset: i64 = (ctxt.si + 1) * WORD_SIZE;
+            let next_ctxt = &Context {
+                si: ctxt.si + 1,
+                ..*ctxt
+            };
+
+            instrs.append(&mut compile_expr(e1, ctxt));
+            // If e1 didn't evaluate to a number (LSB is not 0), jump to error code
+            if !DISABLE_ERROR_CHECKING {
+                instrs.push(Instr::Test(Val::Reg(Reg::RAX), Val::Imm(1)));
+                instrs.push(Instr::JumpNotZero(INVALID_TYPE_LABEL.to_string()));
+            }
+
+            // Save result of e1 on stack
+            instrs.push(Instr::Mov(
+                Val::RegOff(Reg::RBP, stack_offset),
+                Val::Reg(Reg::RAX),
+            ));
+
+            // e2 instructions
+            instrs.append(&mut compile_expr(e2, next_ctxt));
+
+            // If e2 didn't evaluate to a number (LSB is not 0), jump to error code
+            if !DISABLE_ERROR_CHECKING {
+                instrs.push(Instr::Test(Val::Reg(Reg::RAX), Val::Imm(1)));
+                instrs.push(Instr::JumpNotZero(INVALID_TYPE_LABEL.to_string()));
+            }
+
+            // Add the appropriate instruction based on the arithmetic operator
+            match op {
+                Op2::Plus => {
+                    instrs.push(Instr::Add(
+                        Val::Reg(Reg::RAX),
+                        Val::RegOff(Reg::RBP, stack_offset),
+                    ));
+                }
+                Op2::Minus => {
+                    // Move result of e2 from rax into rbx
+                    instrs.push(Instr::Mov(Val::Reg(Reg::RBX), Val::Reg(Reg::RAX)));
+
+                    // Move result of e1 from stack into rax
+                    instrs.push(Instr::Mov(
+                        Val::Reg(Reg::RAX),
+                        Val::RegOff(Reg::RBP, stack_offset),
+                    ));
+                    // Do [rax] - [rbx]
+                    instrs.push(Instr::Sub(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)));
+                }
+                Op2::Times => {
+                    // For multiplication, shift the result of e2 right 1 bit.
+                    instrs.push(Instr::Sar(Val::Reg(Reg::RAX), Val::Imm(1)));
+
+                    instrs.push(Instr::Mul(
+                        Val::Reg(Reg::RAX),
+                        Val::RegOff(Reg::RBP, stack_offset),
+                    ));
+                }
+                _ => panic!("Should not panic here: {op:?}"),
+            }
+            // Check for overflow
+            instrs.append(&mut get_num_overflow_instrs());
+        }
+
+        // Logical binary operators
+        Op2::Equal | Op2::Greater | Op2::GreaterEqual | Op2::Less | Op2::LessEqual => {
+            let stack_offset: i64 = (ctxt.si + 1) * WORD_SIZE;
+            let next_ctxt = &Context {
+                si: ctxt.si + 1,
+                ..*ctxt
+            };
+
+            instrs.append(&mut compile_expr(e1, ctxt));
+
+            // Save result of e1_instrs on stack
+            instrs.push(Instr::Mov(
+                Val::RegOff(Reg::RBP, stack_offset),
+                Val::Reg(Reg::RAX),
+            ));
+
+            instrs.append(&mut compile_expr(e2, next_ctxt));
+
+            // Insert instructions based on the type of logical operator
+            match op {
+                Op2::Equal => {
+                    instrs.append(&mut are_same_types(stack_offset));
+                    // Compare the results of e1 and e2
+                    instrs.push(Instr::Cmp(
+                        Val::Reg(Reg::RAX),
+                        Val::RegOff(Reg::RBP, stack_offset),
+                    ));
+
+                    // Move true into RBX for the conditional move below
+                    instrs.push(Instr::Mov(Val::Reg(Reg::RBX), Val::Imm(TRUE_VAL)));
+                    // By default, move false into RAX.
+                    // If the equality comparison was true, we conditionally move true into RAX.
+                    instrs.push(Instr::Mov(Val::Reg(Reg::RAX), Val::Imm(FALSE_VAL)));
+                    instrs.push(Instr::CMove(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)));
+                }
+                Op2::Greater => {
+                    instrs.append(&mut get_inequality_instrs(ctxt));
+                    instrs.push(Instr::CMovg(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)))
+                }
+                Op2::GreaterEqual => {
+                    instrs.append(&mut get_inequality_instrs(ctxt));
+                    instrs.push(Instr::CMovge(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)))
+                }
+                Op2::Less => {
+                    instrs.append(&mut get_inequality_instrs(ctxt));
+                    instrs.push(Instr::CMovl(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)));
+                }
+                Op2::LessEqual => {
+                    instrs.append(&mut get_inequality_instrs(ctxt));
+                    instrs.push(Instr::CMovle(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)));
+                }
+                _ => panic!("Should never panic here: {op:?}"),
+            }
+        }
+    }
+    return instrs;
 }
 
 // Get the instructions for the error handler for the given error code
