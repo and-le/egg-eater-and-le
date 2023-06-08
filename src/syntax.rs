@@ -24,6 +24,7 @@ pub enum Op2 {
     GreaterEqual,
     Less,
     LessEqual,
+    StructEqual,
 }
 
 // Expressions

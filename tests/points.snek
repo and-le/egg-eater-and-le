@@ -1,0 +1,15 @@
+(fun (make_point x y)
+    (vec x y)
+)
+
+(fun (add_points p1 p2)
+    (vec (+ (vec-get p1 0) (vec-get p2 0) ) (+ (vec-get p1 1) (vec-get p2 1)) )
+)
+
+(let ( (p1 (make_point 5 10)) (p2 (make_point 30 60)) ) 
+     (block 
+        (print p1)
+        (print p2)
+        (print (add_points p1 p2))
+     )
+)

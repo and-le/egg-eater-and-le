@@ -359,9 +359,6 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<Instr> {
                 .map(|i| WORD_SIZE * (i + 1))
                 .collect();
 
-            // println!("Function call to {name}");
-            // println!("stack offsets is {:?}", stack_offsets);
-
             let mut fun_args: Vec<Val> = stack_offsets
                 .iter()
                 .map(|off| Val::RegOff(Reg::RBP, *off))
@@ -385,9 +382,6 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<Instr> {
                 Val::Imm(WORD_SIZE * fun_args.len() as i64),
             ));
         }
-        // Tuples are represented as [tuple size] [first element] [second element] ... [last element]
-        // The return value of a tuple expression is 63-bit address to a word in memory
-        // containing the size of the tuple. The word after this size metadata is the first element of the tuple.
         Expr::Vec(args) => {
             // Save the current value of the heap pointer on the stack; this is the return value.
             let tup_addr_offset = (ctxt.si + 1) * WORD_SIZE;
@@ -601,7 +595,7 @@ fn compile_unary_op(op: Op1, e: &Expr, ctxt: &Context) -> Vec<Instr> {
         Op1::Print => {
             instrs.append(&mut compile_expr(e, ctxt));
             instrs.push(Instr::Mov(Val::Reg(Reg::RDI), Val::Reg(Reg::RAX)));
-            instrs.push(Instr::Call("snek_print".to_string()));
+            instrs.push(Instr::Call(String::from("snek_print")));
             // The return value of print function is carried over from evaluating the expression
         }
     }
@@ -678,7 +672,12 @@ fn compile_binary_op(op: Op2, e1: &Expr, e2: &Expr, ctxt: &Context) -> Vec<Instr
         }
 
         // Logical binary operators
-        Op2::Equal | Op2::Greater | Op2::GreaterEqual | Op2::Less | Op2::LessEqual => {
+        Op2::Equal
+        | Op2::Greater
+        | Op2::GreaterEqual
+        | Op2::Less
+        | Op2::LessEqual
+        | Op2::StructEqual => {
             let stack_offset: i64 = (ctxt.si + 1) * WORD_SIZE;
             let next_ctxt = &Context {
                 si: ctxt.si + 1,
@@ -727,6 +726,16 @@ fn compile_binary_op(op: Op2, e1: &Expr, e2: &Expr, ctxt: &Context) -> Vec<Instr
                 Op2::LessEqual => {
                     instrs.append(&mut get_inequality_instrs(ctxt));
                     instrs.push(Instr::CMovle(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)));
+                }
+                Op2::StructEqual => {
+                    instrs.append(&mut are_same_types(stack_offset));
+                    instrs.push(Instr::Mov(
+                        Val::Reg(Reg::RDI),
+                        Val::RegOff(Reg::RBP, stack_offset),
+                    ));
+                    instrs.push(Instr::Mov(Val::Reg(Reg::RSI), Val::Reg(Reg::RAX)));
+                    instrs.push(Instr::Call(String::from("snek_equals")));
+                    // Return value will be in RAX
                 }
                 _ => panic!("Should never panic here: {op:?}"),
             }

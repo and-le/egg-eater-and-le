@@ -9,6 +9,7 @@ mod assembly;
 mod compiler;
 mod constants;
 mod parser;
+mod start;
 mod syntax;
 
 use assembly::instructions_to_string;
@@ -53,6 +54,7 @@ fn main() -> std::io::Result<()> {
     global our_code_starts_here
     extern snek_error
     extern snek_print
+    extern snek_equals
 {code}
     "
     );

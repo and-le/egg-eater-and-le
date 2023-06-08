@@ -155,6 +155,11 @@ fn parse_sexpr(sexpr: &Sexp) -> Expr {
                 Box::new(parse_sexpr(e1)),
                 Box::new(parse_sexpr(e2)),
             ),
+            [Sexp::Atom(S(op)), e1, e2] if op == "==" => Expr::BinOp(
+                Op2::StructEqual,
+                Box::new(parse_sexpr(e1)),
+                Box::new(parse_sexpr(e2)),
+            ),
 
             // let
             [Sexp::Atom(S(keyword)), bindings, body] if keyword == "let" => {
@@ -323,7 +328,7 @@ fn is_keyword(s: &str) -> bool {
         | "if" | "block" | "loop" | "break" // control flow
         | "fun" // functions
         |  "vec" | "vec-get" | "vec-set!" // vectors
-        |  "+" | "-" | "*" | "<" | "=" | "<=" | ">=" // binary operators
+        |  "+" | "-" | "*" | "<" | "=" | "<=" | ">=" | "==" // binary operators
         => true,
         _ => false,
     }

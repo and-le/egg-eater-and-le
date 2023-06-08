@@ -1,10 +1,34 @@
+use std::collections::HashSet;
+use std::env;
+
 /**
  * Rust functions that are linked at runtime with the compiler
  */
-use std::env;
 
 const I63_MIN: i64 = -4611686018427387904;
 const I63_MAX: i64 = 4611686018427387903;
+const TRUE: i64 = 7;
+const FALSE: i64 = 3;
+const NIL: i64 = 1;
+
+// Parse "input" values into their internal representations
+fn parse_input(input: &str) -> i64 {
+    match input {
+        "false" => 3,
+        "true" => 7,
+        _ => match input.parse::<i64>() {
+            Ok(num) => {
+                if num < I63_MIN || num > I63_MAX {
+                    panic!("Invalid: input overflows a 63-bit signed integer");
+                }
+                return num << 1;
+            }
+            Err(_) => {
+                panic!("Invalid: error occurred parsing input");
+            }
+        },
+    }
+}
 
 // The \x01 used below is an undocumented feature of LLVM that ensures
 // it does not add an underscore in front of the name.
@@ -26,61 +50,103 @@ pub extern "C" fn snek_error(errcode: i64) {
         1 => eprintln!("an error occurred: numeric overflow"),
         2 => eprintln!("an error occurred: invalid argument (incompatible types)"),
         3 => eprintln!("an error occurred: index out of bounds"),
-        4 => eprintln!("an error occurred: invalid tuple address"),
-        5 => eprintln!("an error occurred: invalid tuple offset"),
-        6 => eprintln!("an error occurred: tuple address out of bounds"),
+        4 => eprintln!("an error occurred: invalid vector address"),
+        5 => eprintln!("an error occurred: invalid vector offset"),
+        6 => eprintln!("an error occurred: vector address out of bounds"),
         _ => eprintln!("Unknown error code: {errcode}"),
     }
     std::process::exit(errcode as i32);
 }
 
-// Prints the formatted representation of the value and returns the original input value.
-#[export_name = "\x01snek_print"]
-pub extern "C" fn snek_print(val: i64) -> i64 {
-    let print_val = snek_str(val);
-    println!("{print_val}");
-    return val;
+// Recursive structural equality. Permits comparison of values with different types
+#[export_name = "\x01snek_equals"]
+pub unsafe extern "C" fn snek_equals(val1: i64, val2: i64) -> i64 {
+    snek_equals_helper(val1, val2, &mut HashSet::<(i64, i64)>::new())
 }
 
-// Parse "input" values into their internal representations
-fn parse_input(input: &str) -> i64 {
-    match input {
-        "false" => 3,
-        "true" => 7,
-        _ => match input.parse::<i64>() {
-            Ok(num) => {
-                if num < I63_MIN || num > I63_MAX {
-                    panic!("Invalid: input overflows a 63-bit signed integer");
-                }
-                return num << 1;
+unsafe fn snek_equals_helper(val1: i64, val2: i64, seen: &mut HashSet<(i64, i64)>) -> i64 {
+    if val1 & 3 == 1 && val2 & 3 == 1 {
+        if val1 == val2 {
+            // println!("Pointers are equal");
+            seen.remove(&(val1, val2));
+            return TRUE;
+        }
+        if val1 == NIL || val2 == NIL {
+            // println!("Pointer is NIL");
+            seen.remove(&(val1, val2));
+            return FALSE;
+        }
+        if !seen.insert((val1, val2)) {
+            // println!("Pointers seen before");
+            seen.remove(&(val1, val2));
+            return TRUE;
+        }
+
+        let addr1 = (val1 - 1) as *const u64;
+        let addr2 = (val2 - 1) as *const u64;
+        let size1 = addr1.read();
+        let size2 = addr2.read();
+        if size1 != size2 {
+            return FALSE;
+        }
+        // Compare each of the values of val1 and val2
+        for i in 0..size1 {
+            let elem1 = addr1.add(1 + i as usize).read() as i64;
+            let elem2 = addr2.add(1 + i as usize).read() as i64;
+            if snek_equals_helper(elem1, elem2, seen) == FALSE {
+                return FALSE;
             }
-            Err(_) => {
-                panic!("Invalid: error occurred parsing input");
-            }
-        },
+        }
+        seen.remove(&(val1, val2));
+        // println!("Structurally equal");
+        TRUE
+    } else {
+        // If val1 and val2 aren't pointers, use reference equality
+        seen.remove(&(val1, val2));
+        if val1 == val2 {
+            // println!("Referentially equal");
+            return TRUE;
+        } else {
+            // println!("Referentially unequal");
+            return FALSE;
+        }
     }
 }
 
-// Converts the internal representation of the value to a user-facing String value.
-fn snek_str(val: i64) -> String {
+// Prints the formatted representation of the value and returns the original input value.
+#[export_name = "\x01snek_print"]
+pub unsafe extern "C" fn snek_print(val: i64) -> i64 {
+    let print_val = snek_str(val, &mut HashSet::<i64>::new());
+    println!("{print_val}");
+    val
+}
+
+// Converts the internal representation of the value to its true value, formatted as a string.
+unsafe fn snek_str(val: i64, seen: &mut HashSet<i64>) -> String {
     if val == 7 {
-        "true".to_string()
+        String::from("true")
     } else if val == 3 {
-        "false".to_string()
+        String::from("false")
     } else if val % 2 == 0 {
         (val >> 1).to_string()
     } else if val == 1 {
-        "nil".to_string()
+        String::from("nil")
     } else if val & 1 == 1 {
-        let mut strings: Vec<String> = Vec::new();
-        let addr = (val - 1) as *const i64;
-        let tuple_size = unsafe { *addr };
-        // strings.push(format!("Addr {:?}", addr));
-        for i in 1..tuple_size + 1 {
-            let elem = unsafe { *addr.offset(i as isize) };
-            strings.push(snek_str(elem));
+        if !seen.insert(val) {
+            return String::from("[...]");
         }
-        format!("(tuple {})", strings.join(" "))
+        let addr = (val - 1) as *const u64;
+        let size = addr.read() as usize;
+        let mut result_str = String::from("[");
+        for i in 1..size + 1 {
+            let elem = addr.add(i).read() as i64;
+            result_str = result_str + &snek_str(elem, seen);
+            if i < size {
+                result_str = result_str + ", ";
+            }
+        }
+        seen.remove(&val);
+        result_str + "]"
     } else {
         format!("Unknown value: {}", val)
     }
@@ -97,11 +163,11 @@ fn main() {
     let mut heap_mem = Vec::<i64>::with_capacity(HEAP_CAPACITY);
     let heap_start: *mut i64 = heap_mem.as_mut_ptr();
     let heap_end: *mut i64 = unsafe { heap_start.offset(HEAP_CAPACITY as isize) };
-    // println!("Heap start: {:?}", heap_start);
-    // println!("Heap end: {:?}", heap_end);
 
     // Run the compiled code
     let output: i64 = unsafe { our_code_starts_here(input, heap_start, heap_end) };
     // Print the output
-    let _ = snek_print(output);
+    unsafe {
+        let _ = snek_print(output);
+    }
 }

@@ -1,0 +1,11 @@
+(let ((p (vec 10 20 30)) (q (vec 40 50 60)) )
+    (block
+        (print p)
+        (print q)
+        (vec-set! p 1 q)
+        (vec-set! q 1 q)
+        (print p)
+        (print q)
+        0
+    )
+)
