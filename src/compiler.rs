@@ -432,7 +432,7 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<Instr> {
         }
         Expr::VecGet(vec, index) => {
             instrs.append(&mut compile_expr(vec, ctxt));
-            instrs.append(&mut is_vector_with_error());
+            instrs.append(&mut is_non_nil_vector());
 
             // Save the address on the stack
             let vec_stack_offset = (ctxt.si + 1) * WORD_SIZE;
@@ -482,7 +482,7 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<Instr> {
         }
         Expr::VecSet(vec, index, value) => {
             instrs.append(&mut compile_expr(vec, ctxt));
-            instrs.append(&mut is_vector_with_error());
+            instrs.append(&mut is_non_nil_vector());
 
             // Save vector address on stack
             let vec_stack_offset = (ctxt.si + 1) * WORD_SIZE;
@@ -886,7 +886,7 @@ fn is_boolean() -> Vec<Instr> {
     return instrs;
 }
 
-// Returns a vector of instructions that checks whether the current value in RAX is a heap address.
+// Returns a vector of instructions that checks whether the current value in RAX is a non-nil vector.
 // Uses RBX for intermediate computation, and does a CMP that sets condition codes.
 fn is_vector() -> Vec<Instr> {
     if DISABLE_ERROR_CHECKING {
@@ -900,14 +900,20 @@ fn is_vector() -> Vec<Instr> {
 }
 
 // Returns a vector of instructions that checks whether the current value in RAX
-// is a heap address. Throws an error if not, otherwise continues.
-fn is_vector_with_error() -> Vec<Instr> {
-    if DISABLE_ERROR_CHECKING {
-        return Vec::new();
-    }
+// is a non-nil vector. Throws an error if not, otherwise continues.
+fn is_non_nil_vector() -> Vec<Instr> {
     let mut instrs = Vec::new();
-    instrs.append(&mut is_vector());
+
+    // Check that value is not nil
+    instrs.push(Instr::Mov(Val::Reg(Reg::RBX), Val::Reg(Reg::RAX)));
+    instrs.push(Instr::Cmp(Val::Reg(Reg::RBX), Val::Imm(NIL_VAL)));
+    instrs.push(Instr::JumpEqual(NOT_VEC_LABEL.to_string()));
+
+    // Check that value is vector
+    instrs.push(Instr::And(Val::Reg(Reg::RBX), Val::Imm(1)));
+    instrs.push(Instr::Cmp(Val::Reg(Reg::RBX), Val::Imm(1)));
     instrs.push(Instr::JumpNotEqual(NOT_VEC_LABEL.to_string()));
+
     return instrs;
 }
 
