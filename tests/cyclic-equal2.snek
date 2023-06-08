@@ -1,7 +1,9 @@
-(let ((p (vec 10)) (q (vec 10)))
+(let ((p (vec 10 20 30)) (q (vec 10 20 30)) (r (vec 40 50 7)) (s (vec 40 50 900)))
     (block
-        (vec-set! p 0 p)
-        (vec-set! q 0 q)
+        (vec-set! r 1 r)
+        (vec-set! s 1 s)
+        (vec-set! p 1 r)
+        (vec-set! q 1 s)
         (== p q)
     )
 )
