@@ -86,7 +86,7 @@ pub fn compile_program(prog: &Program, start_label: String) -> Vec<Instr> {
 }
 
 // Compile all functions
-fn compile_funs(funs: &Vec<Definition>, fun_map: &HashMap<String, Vec<String>>) -> Vec<Instr> {
+fn compile_funs(funs: &Vec<FunDef>, fun_map: &HashMap<String, Vec<String>>) -> Vec<Instr> {
     let mut instrs = Vec::new();
     for fun in funs.iter() {
         instrs.append(&mut compile_fun(fun, fun_map));
@@ -95,7 +95,7 @@ fn compile_funs(funs: &Vec<Definition>, fun_map: &HashMap<String, Vec<String>>) 
 }
 
 // Compile given function
-fn compile_fun(fun: &Definition, fun_map: &HashMap<String, Vec<String>>) -> Vec<Instr> {
+fn compile_fun(fun: &FunDef, fun_map: &HashMap<String, Vec<String>>) -> Vec<Instr> {
     let mut instrs = Vec::new();
     let locals = depth(&fun.body);
     let callee_saved = &[Val::Reg(Reg::RBP)];
@@ -328,7 +328,7 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<Instr> {
         }
 
         // Function call
-        Expr::FunCall(name, args) => {
+        Expr::Call(name, args) => {
             if !ctxt.fun_map.contains_key(name) {
                 panic!("Invalid: undefined function {name}");
             }
@@ -388,7 +388,7 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<Instr> {
         // Tuples are represented as [tuple size] [first element] [second element] ... [last element]
         // The return value of a tuple expression is 63-bit address to a word in memory
         // containing the size of the tuple. The word after this size metadata is the first element of the tuple.
-        Expr::Tuple(args) => {
+        Expr::Vec(args) => {
             // Save the current value of the heap pointer on the stack; this is the return value.
             let tup_addr_offset = (ctxt.si + 1) * WORD_SIZE;
             instrs.push(Instr::Mov(
@@ -436,32 +436,19 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<Instr> {
             ));
             instrs.push(Instr::Add(Val::Reg(Reg::RAX), Val::Imm(1)));
         }
-        Expr::Index(addr, offset) => {
-            instrs.append(&mut compile_expr(addr, ctxt));
-            instrs.append(&mut is_heap_address_with_error());
-
-            // instrs.push(Instr::Mov(Val::Reg(Reg::RBX), Val::Reg(Reg::RAX)));
-            // instrs.push(Instr::Sub(Val::Reg(Reg::RBX), Val::Imm(1)));
-
-            // instrs.push(Instr::Cmp(Val::Reg(Reg::RBX), Val::Reg(Reg::RSI)));
-            // instrs.push(Instr::JumpLess(
-            //     HEAP_ADDRESS_OUT_OF_BOUNDS_LABEL.to_string(),
-            // ));
-
-            // instrs.push(Instr::Cmp(Val::Reg(Reg::RBX), Val::Reg(Reg::RDX)));
-            // instrs.push(Instr::JumpGreater(
-            //     HEAP_ADDRESS_OUT_OF_BOUNDS_LABEL.to_string(),
-            // ));
+        Expr::VecGet(vec, index) => {
+            instrs.append(&mut compile_expr(vec, ctxt));
+            instrs.append(&mut is_vector_with_error());
 
             // Save the address on the stack
-            let addr_offset = (ctxt.si + 1) * WORD_SIZE;
+            let vec_stack_offset = (ctxt.si + 1) * WORD_SIZE;
             instrs.push(Instr::Mov(
-                Val::RegOff(Reg::RBP, addr_offset),
+                Val::RegOff(Reg::RBP, vec_stack_offset),
                 Val::Reg(Reg::RAX),
             ));
 
             instrs.append(&mut compile_expr(
-                offset,
+                index,
                 &Context {
                     si: ctxt.si + 1,
                     ..*ctxt
@@ -477,7 +464,7 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<Instr> {
             // Unmask the address by clearing the LSB
             instrs.push(Instr::Mov(
                 Val::Reg(Reg::RBX),
-                Val::RegOff(Reg::RBP, addr_offset),
+                Val::RegOff(Reg::RBP, vec_stack_offset),
             ));
             instrs.push(Instr::Sub(Val::Reg(Reg::RBX), Val::Imm(1)));
 
@@ -493,11 +480,63 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<Instr> {
             // Add 1 because the address is currently at the tuple size, not the first element.
             instrs.push(Instr::Add(Val::Reg(Reg::RAX), Val::Imm(1)));
             // Multiply the offset by the word size
-            instrs.push(Instr::Mul(Val::Reg(Reg::RAX), Val::Imm(WORD_SIZE)));
+            instrs.push(Instr::Shl(Val::Reg(Reg::RAX), Val::Imm(WORD_SIZE_SHIFT)));
             // Add the offset to the base address
             instrs.push(Instr::Add(Val::Reg(Reg::RBX), Val::Reg(Reg::RAX)));
             // Load the value from the heap
             instrs.push(Instr::Mov(Val::Reg(Reg::RAX), Val::RegOff(Reg::RBX, 0)));
+        }
+        Expr::VecSet(vec, index, value) => {
+            instrs.append(&mut compile_expr(vec, ctxt));
+            instrs.append(&mut is_vector_with_error());
+
+            // Save vector address on stack
+            let vec_stack_offset = (ctxt.si + 1) * WORD_SIZE;
+            instrs.push(Instr::Mov(
+                Val::RegOff(Reg::RBP, vec_stack_offset),
+                Val::Reg(Reg::RAX),
+            ));
+
+            let index_ctxt = Context {
+                si: ctxt.si + 1,
+                ..*ctxt
+            };
+            instrs.append(&mut compile_expr(index, &index_ctxt));
+            instrs.append(&mut is_number());
+            instrs.push(Instr::JumpNotEqual(NOT_INDEX_OFFSET_LABEL.to_string()));
+
+            // Save index on stack
+            let index_stack_offset = (ctxt.si + 2) * WORD_SIZE;
+            instrs.push(Instr::Mov(
+                Val::RegOff(Reg::RBP, index_stack_offset),
+                Val::Reg(Reg::RAX),
+            ));
+
+            let value_ctxt = Context {
+                si: ctxt.si + 2,
+                ..*ctxt
+            };
+            instrs.append(&mut compile_expr(value, &value_ctxt));
+
+            // Get vector address from stack
+            instrs.push(Instr::Mov(
+                Val::Reg(Reg::RBX),
+                Val::RegOff(Reg::RBP, vec_stack_offset),
+            ));
+            instrs.push(Instr::Sub(Val::Reg(Reg::RBX), Val::Imm(1)));
+
+            // Get index from stack
+            instrs.push(Instr::Mov(
+                Val::Reg(Reg::R10),
+                Val::RegOff(Reg::RBP, index_stack_offset),
+            ));
+            instrs.push(Instr::Sar(Val::Reg(Reg::R10), Val::Imm(1)));
+            instrs.push(Instr::Add(Val::Reg(Reg::R10), Val::Imm(1)));
+            instrs.push(Instr::Shl(Val::Reg(Reg::R10), Val::Imm(WORD_SIZE_SHIFT)));
+            instrs.push(Instr::Add(Val::Reg(Reg::R10), Val::Reg(Reg::RBX)));
+            // Set value
+            instrs.push(Instr::Mov(Val::RegOff(Reg::R10, 0), Val::Reg(Reg::RAX)));
+            instrs.push(Instr::Mov(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)));
         }
     }
     return instrs;
@@ -510,9 +549,8 @@ fn compile_error_instrs() -> Vec<Instr> {
     error_instrs.append(&mut get_error_instrs(ERR_NUM_OVERFLOW));
     error_instrs.append(&mut get_error_instrs(ERR_INVALID_TYPE));
     error_instrs.append(&mut get_error_instrs(ERR_INDEX_OUT_OF_BOUNDS));
-    error_instrs.append(&mut get_error_instrs(ERR_NOT_HEAP_ADDRESS));
+    error_instrs.append(&mut get_error_instrs(ERR_NOT_VEC));
     error_instrs.append(&mut get_error_instrs(ERR_NOT_INDEX_OFFSET));
-    error_instrs.append(&mut get_error_instrs(ERR_HEAP_ADDRESS_OUT_OF_BOUNDS));
 
     return error_instrs;
 }
@@ -547,6 +585,15 @@ fn compile_unary_op(op: Op1, e: &Expr, ctxt: &Context) -> Vec<Instr> {
             // Set condition codes for whether e is a Boolean
             instrs.append(&mut is_boolean());
             // Move false into RAX by default. Conditionally move true into RAX if e is a Boolean
+            instrs.push(Instr::Mov(Val::Reg(Reg::RAX), Val::Imm(FALSE_VAL)));
+            instrs.push(Instr::Mov(Val::Reg(Reg::RBX), Val::Imm(TRUE_VAL)));
+            instrs.push(Instr::CMove(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)));
+        }
+        Op1::IsVec => {
+            instrs.append(&mut compile_expr(e, ctxt));
+            // Set condition codes for whether e is a vector
+            instrs.append(&mut is_vector());
+            // Move false into RAX by default. Conditionally move true into RAX if e is a vector
             instrs.push(Instr::Mov(Val::Reg(Reg::RAX), Val::Imm(FALSE_VAL)));
             instrs.push(Instr::Mov(Val::Reg(Reg::RBX), Val::Imm(TRUE_VAL)));
             instrs.push(Instr::CMove(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)));
@@ -706,11 +753,8 @@ fn get_error_instrs(errcode: i64) -> Vec<Instr> {
             instrs.push(Instr::Label(String::from(INDEX_OUT_OF_BOUNDS_LABEL)))
         }
 
-        ERR_NOT_HEAP_ADDRESS => instrs.push(Instr::Label(String::from(NOT_HEAP_ADDRESS_LABEL))),
+        ERR_NOT_VEC => instrs.push(Instr::Label(String::from(NOT_VEC_LABEL))),
         ERR_NOT_INDEX_OFFSET => instrs.push(Instr::Label(String::from(NOT_INDEX_OFFSET_LABEL))),
-        ERR_HEAP_ADDRESS_OUT_OF_BOUNDS => {
-            instrs.push(Instr::Label(String::from(HEAP_ADDRESS_OUT_OF_BOUNDS_LABEL)))
-        }
 
         _ => panic!("Unknown error code: {errcode}"),
     }
@@ -835,7 +879,7 @@ fn is_boolean() -> Vec<Instr> {
 
 // Returns a vector of instructions that checks whether the current value in RAX is a heap address.
 // Uses RBX for intermediate computation, and does a CMP that sets condition codes.
-fn is_heap_address() -> Vec<Instr> {
+fn is_vector() -> Vec<Instr> {
     if DISABLE_ERROR_CHECKING {
         return Vec::new();
     }
@@ -848,23 +892,13 @@ fn is_heap_address() -> Vec<Instr> {
 
 // Returns a vector of instructions that checks whether the current value in RAX
 // is a heap address. Throws an error if not, otherwise continues.
-fn is_heap_address_with_error() -> Vec<Instr> {
+fn is_vector_with_error() -> Vec<Instr> {
     if DISABLE_ERROR_CHECKING {
         return Vec::new();
     }
     let mut instrs = Vec::new();
-    instrs.append(&mut is_heap_address());
-
-    // instrs.push(Instr::Mov(Val::Reg(Reg::RDI), Val::Reg(Reg::RSI)));
-    // instrs.push(Instr::Add(Val::Reg(Reg::RDI), Val::Imm(1)));
-
-    // instrs.push(Instr::Call(String::from("snek_print")));
-
-    // instrs.push(Instr::Mov(Val::Reg(Reg::RDI), Val::Reg(Reg::RDX)));
-    // instrs.push(Instr::Add(Val::Reg(Reg::RDI), Val::Imm(1)));
-    // instrs.push(Instr::Call(String::from("snek_print")));
-
-    instrs.push(Instr::JumpNotEqual(NOT_HEAP_ADDRESS_LABEL.to_string()));
+    instrs.append(&mut is_vector());
+    instrs.push(Instr::JumpNotEqual(NOT_VEC_LABEL.to_string()));
     return instrs;
 }
 
@@ -930,13 +964,17 @@ fn depth(expr: &Expr) -> u32 {
             .max()
             .unwrap_or(0)
             .max(depth(body) + bindings.len() as u32),
-        Expr::FunCall(_, args) | Expr::Tuple(args) => args
+        Expr::Call(_, args) | Expr::Vec(args) => args
             .iter()
             .enumerate()
             .map(|(i, e)| depth(e) + (i as u32))
             .max()
             .unwrap_or(0)
             .max(args.len() as u32),
-        Expr::Index(vec, offset) => depth(vec).max(depth(offset) + 1),
+        Expr::VecGet(vec, offset) => depth(vec).max(depth(offset) + 1),
+        Expr::VecSet(vec, index, value) => depth(vec)
+            .max(depth(index) + 1)
+            .max(depth(value) + 2)
+            .max(2),
     }
 }

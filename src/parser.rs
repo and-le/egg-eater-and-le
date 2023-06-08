@@ -6,18 +6,16 @@ use sexp::*;
 
 use crate::syntax::*;
 
-use im::HashSet;
-
 // Parses an S-expression into a Snek program
 pub fn parse_program(sexpr: &Sexp) -> Program {
     match sexpr {
         // Program or S-expression surrounded by parentheses
         Sexp::List(vec) => {
             let mut parsing_main_only = true;
-            let mut defs: Vec<Definition> = Vec::new();
+            let mut defs: Vec<FunDef> = Vec::new();
             for def_or_expr in vec {
                 // println!("def_or_expr: {def_or_expr}");
-                if is_definition(def_or_expr) {
+                if is_fundef(def_or_expr) {
                     // println!("Parsing definition: {def_or_expr:?}");
                     parsing_main_only = false;
                     defs.push(parse_definition(def_or_expr));
@@ -59,13 +57,6 @@ pub fn parse_program(sexpr: &Sexp) -> Program {
 
 // Converts an Sexp to an Expr. Panics if there was an error.
 fn parse_sexpr(sexpr: &Sexp) -> Expr {
-    let reserved_strings: HashSet<String> = [
-        "add1", "sub1", "let", "if", "block", "loop", "break", "set!", "isnum", "isbool", "print",
-        "+", "-", "*", "<", "<=", ">=", ">", "=", "index", "tuple", "nil",
-    ]
-    .iter()
-    .cloned()
-    .collect();
     match sexpr {
         Sexp::Atom(I(num)) => {
             // Allow overflow
@@ -75,6 +66,8 @@ fn parse_sexpr(sexpr: &Sexp) -> Expr {
                 None => 0,
             });
         }
+
+        // Literals
         Sexp::Atom(S(name)) if name == "false" => Expr::Boolean(false),
         Sexp::Atom(S(name)) if name == "true" => Expr::Boolean(true),
         Sexp::Atom(S(name)) if name == "input" => Expr::Input,
@@ -82,10 +75,11 @@ fn parse_sexpr(sexpr: &Sexp) -> Expr {
 
         // Identifier
         Sexp::Atom(S(name)) => {
-            if reserved_strings.contains(name) {
-                panic!("Invalid: reserved keyword {name}");
+            if is_keyword(name) {
+                panic!("Invalid: {name} cannot be used as a variable identifier");
+            } else {
+                Expr::Id(name.to_string())
             }
-            Expr::Id(name.to_string())
         }
 
         // List pattern
@@ -96,6 +90,9 @@ fn parse_sexpr(sexpr: &Sexp) -> Expr {
             }
             [Sexp::Atom(S(op)), e] if op == "isbool" => {
                 Expr::UnOp(Op1::IsBool, Box::new(parse_sexpr(e)))
+            }
+            [Sexp::Atom(S(op)), e] if op == "isvec" => {
+                Expr::UnOp(Op1::IsVec, Box::new(parse_sexpr(e)))
             }
 
             // Unary operators
@@ -162,7 +159,6 @@ fn parse_sexpr(sexpr: &Sexp) -> Expr {
             // let
             [Sexp::Atom(S(keyword)), bindings, body] if keyword == "let" => {
                 let bindings = parse_bindings(bindings);
-                // Check for no bindings
                 if bindings.is_empty() {
                     panic!("Invalid: no bindings");
                 }
@@ -171,15 +167,11 @@ fn parse_sexpr(sexpr: &Sexp) -> Expr {
 
             // Set!
             [Sexp::Atom(S(op)), Sexp::Atom(S(name)), e] if op == "set!" => {
-                if reserved_strings.contains(name)
-                    || name == "true"
-                    || name == "false"
-                    || name == "input"
-                    || name == "print"
-                {
-                    panic!("Invalid: reserved keyword");
+                if is_keyword(name) {
+                    panic!("Invalid: {name} cannot be used as a variable identifier");
+                } else {
+                    Expr::Set(name.to_string(), Box::new(parse_sexpr(e)))
                 }
-                Expr::Set(name.to_string(), Box::new(parse_sexpr(e)))
             }
 
             // Block
@@ -196,28 +188,35 @@ fn parse_sexpr(sexpr: &Sexp) -> Expr {
             // Break
             [Sexp::Atom(S(op)), e] if op == "break" => Expr::Break(Box::new(parse_sexpr(e))),
 
-            // Tuple
-            [Sexp::Atom(S(keyword)), arg1, remaining_args @ ..] if keyword == "tuple" => {
+            // Vector construction with N expressions
+            [Sexp::Atom(S(keyword)), arg1, remaining_args @ ..] if keyword == "vec" => {
                 let mut args = Vec::new();
                 args.push(parse_sexpr(arg1));
                 for arg in remaining_args.iter() {
                     args.push(parse_sexpr(arg));
                 }
-                Expr::Tuple(args)
+                Expr::Vec(args)
             }
 
-            // Index
-            [Sexp::Atom(S(keyword)), e1, e2] if keyword == "index" => {
-                Expr::Index(Box::new(parse_sexpr(e1)), Box::new(parse_sexpr(e2)))
+            // Vector indexing
+            [Sexp::Atom(S(keyword)), e1, e2] if keyword == "vec-get" => {
+                Expr::VecGet(Box::new(parse_sexpr(e1)), Box::new(parse_sexpr(e2)))
             }
+
+            // Vector mutability
+            [Sexp::Atom(S(keyword)), e1, e2, e3] if keyword == "vec-set!" => Expr::VecSet(
+                Box::new(parse_sexpr(e1)),
+                Box::new(parse_sexpr(e2)),
+                Box::new(parse_sexpr(e3)),
+            ),
 
             // Function call
             [Sexp::Atom(S(funname)), args @ ..] => {
-                if reserved_strings.contains(funname) {
-                    panic!("Invalid: reserved keyword {funname}");
+                if is_keyword(funname) {
+                    panic!("Invalid: function {funname} is a reserved keyword");
                 }
                 // Parse each of the argument expressions
-                Expr::FunCall(funname.to_string(), args.iter().map(parse_sexpr).collect())
+                Expr::Call(funname.to_string(), args.iter().map(parse_sexpr).collect())
             }
 
             // Unrecognized list pattern
@@ -246,19 +245,11 @@ fn parse_bindings(sexpr: &Sexp) -> Vec<(String, Expr)> {
 
 // Parses a single let binding
 fn parse_bind(sexpr: &Sexp) -> (String, Expr) {
-    let reserved_strings: HashSet<String> = [
-        "add1", "sub1", "let", "if", "block", "loop", "break", "set!", "isnum", "isbool", "true",
-        "false", "input", "print", "+", "-", "*", "<", "<=", ">=", ">", "=", "index", "tuple",
-        "nil",
-    ]
-    .iter()
-    .cloned()
-    .collect();
     match sexpr {
         Sexp::List(vec) => match &vec[..] {
             [Sexp::Atom(S(name)), e] => {
-                if reserved_strings.contains(name) {
-                    panic!("Invalid: reserved keyword {name}");
+                if is_keyword(name) {
+                    panic!("Invalid: let binding variable {name} is a reserved keyword");
                 } else {
                     return (name.to_string(), parse_sexpr(e));
                 }
@@ -274,7 +265,7 @@ fn parse_bind(sexpr: &Sexp) -> (String, Expr) {
 }
 
 // Returns true if the S-expression is a function definition; false otherwise
-fn is_definition(sexpr: &Sexp) -> bool {
+fn is_fundef(sexpr: &Sexp) -> bool {
     match sexpr {
         Sexp::List(vec) => match &vec[..] {
             [Sexp::Atom(S(keyword)), Sexp::List(_), _] if keyword == "fun" => true,
@@ -284,20 +275,12 @@ fn is_definition(sexpr: &Sexp) -> bool {
     }
 }
 
-// Parses the S-expression into a String; panics if the S-expression is not a String Atom or is a reserved keyword
+// Parses the parameter.
 fn parse_param(sexpr: &Sexp) -> String {
-    let reserved_strings: HashSet<String> = [
-        "add1", "sub1", "let", "if", "block", "loop", "break", "set!", "isnum", "isbool", "true",
-        "false", "input", "print", "+", "-", "*", "<", "<=", ">=", ">", "=", "index", "tuple",
-        "nil",
-    ]
-    .iter()
-    .cloned()
-    .collect();
     match sexpr {
         Sexp::Atom(S(name)) => {
-            if reserved_strings.contains(name) {
-                panic!("Invalid: reserved keyword");
+            if is_keyword(name) {
+                panic!("Invalid: parameter {name} is a reserved keyword");
             }
             name.to_string()
         }
@@ -305,26 +288,18 @@ fn parse_param(sexpr: &Sexp) -> String {
     }
 }
 
-// Parses the S-expression into a definition; panics if the syntax is invalid or the function name or params use reserved words
-fn parse_definition(s: &Sexp) -> Definition {
-    let reserved_strings: HashSet<String> = [
-        "add1", "sub1", "let", "if", "block", "loop", "break", "set!", "isnum", "isbool", "true",
-        "false", "input", "print", "+", "-", "*", "<", "<=", ">=", ">", "=", "index", "tuple",
-        "nil",
-    ]
-    .iter()
-    .cloned()
-    .collect();
+// Parses the function definition.
+fn parse_definition(s: &Sexp) -> FunDef {
     match s {
         Sexp::List(def_vec) => match &def_vec[..] {
             [Sexp::Atom(S(keyword)), Sexp::List(name_and_params), body] if keyword == "fun" => {
                 match &name_and_params[..] {
                     [Sexp::Atom(S(funname)), params @ ..] => {
-                        if reserved_strings.contains(funname) {
-                            panic!("Invalid: reserved keyword {funname}")
+                        if is_keyword(funname) {
+                            panic!("Invalid: function {funname} is a reserved keyword")
                         }
                         let parsed_params = params.iter().map(parse_param).collect();
-                        return Definition {
+                        return FunDef {
                             name: funname.to_string(),
                             params: parsed_params,
                             body: Box::new(parse_sexpr(body)),
@@ -336,5 +311,20 @@ fn parse_definition(s: &Sexp) -> Definition {
             _ => panic!("fun keyword not found"),
         },
         _ => panic!("Definition is a not a List"),
+    }
+}
+
+// Returns true if the given string is a language keyword, false otherwise
+fn is_keyword(s: &str) -> bool {
+    match s {
+        "true" | "false" | "input" | "nil"  // literals
+        | "add1" | "sub1" | "isnum" | "isbool" | "print" // unary operators
+        | "let" | "set!" // variable identifiers
+        | "if" | "block" | "loop" | "break" // control flow
+        | "fun" // functions
+        |  "vec" | "vec-get" | "vec-set!" // vectors
+        |  "+" | "-" | "*" | "<" | "=" | "<=" | ">=" // binary operators
+        => true,
+        _ => false,
     }
 }

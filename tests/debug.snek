@@ -1,7 +1,0 @@
-(let ( (pair (tuple 10 20)) )
-    (block
-        (print pair)
-        (print (index pair 0))
-        (print (index pair 1))
-    )
-)

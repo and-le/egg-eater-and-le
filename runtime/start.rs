@@ -72,7 +72,6 @@ fn snek_str(val: i64) -> String {
     } else if val == 1 {
         "nil".to_string()
     } else if val & 1 == 1 {
-        // format!("{:0x}", val)
         let mut strings: Vec<String> = Vec::new();
         let addr = (val - 1) as *const i64;
         let tuple_size = unsafe { *addr };

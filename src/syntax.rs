@@ -9,6 +9,7 @@ pub enum Op1 {
     Sub1,
     IsNum,
     IsBool,
+    IsVec,
     Print,
 }
 
@@ -41,14 +42,15 @@ pub enum Expr {
     Break(Box<Expr>),
     Set(String, Box<Expr>),
     Block(Vec<Expr>),
-    FunCall(String, Vec<Expr>),  // function call
-    Tuple(Vec<Expr>),            // tuple of heap-allocated values
-    Index(Box<Expr>, Box<Expr>), // (index e1 e2) returns the element at an offset of e2 words away from the value of e1
+    Call(String, Vec<Expr>), // function call
+    Vec(Vec<Expr>),          // vector of heap-allocated values
+    VecGet(Box<Expr>, Box<Expr>),
+    VecSet(Box<Expr>, Box<Expr>, Box<Expr>),
 }
 
 // A function consists of a name, 0 or more named parameters (arguments), and a body
 #[derive(Debug)]
-pub struct Definition {
+pub struct FunDef {
     pub name: String,
     pub params: Vec<String>,
     pub body: Box<Expr>,
@@ -56,6 +58,6 @@ pub struct Definition {
 // A program consits of a list of function definitions and a main expression
 #[derive(Debug)]
 pub struct Program {
-    pub defs: Vec<Definition>,
+    pub defs: Vec<FunDef>,
     pub main: Box<Expr>,
 }

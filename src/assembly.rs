@@ -51,6 +51,7 @@ pub enum Instr {
 
     // Shifts
     Sar(Val, Val),
+    Shl(Val, Val),
 
     // Bitwise
     And(Val, Val),
@@ -119,6 +120,9 @@ pub fn instr_to_str(instr: &Instr) -> String {
         // Shifts
         Instr::Sar(src, shift_amount) => {
             format!("sar {}, {}", val_to_str(src), val_to_str(shift_amount))
+        }
+        Instr::Shl(src, shift_amount) => {
+            format!("shl {}, {}", val_to_str(src), val_to_str(shift_amount))
         }
         // Function calling
         Instr::Push(val) => format!("push qword {}", val_to_str(val)),
