@@ -110,6 +110,11 @@ success_tests! {
         file: "isvec4.snek",
         expected: "true"
     },
+    {
+        name: make_vec_1,
+        file: "make_vec_1.snek",
+        expected: "5\n231\n231\n231\n231\n231\n[231, 231, 231, 231, 231]"
+    },
 
 }
 

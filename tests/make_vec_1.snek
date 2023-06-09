@@ -1,0 +1,11 @@
+(let ((x (make-vec 5 231)))
+    (block
+        (print (vec-len x))
+        (print (vec-get x 0))
+        (print (vec-get x 1))
+        (print (vec-get x 2))
+        (print (vec-get x 3))
+        (print (vec-get x 4))
+        x       
+    )
+)

@@ -14,8 +14,6 @@ use crate::syntax::*;
 
 static mut LABEL_CTR: usize = 0;
 
-const DISABLE_ERROR_CHECKING: bool = false;
-
 // Contains contextual information the compiler uses to compile each expression.
 #[derive(Debug, Clone)]
 struct Context<'a> {
@@ -604,7 +602,7 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<Instr> {
                 Val::Reg(Reg::RBX),
                 Val::RegOff(Reg::RBP, vec_stack_offset),
             ));
-            instrs.push(Instr::Mov(Val::Reg(Reg::RBX), Val::RegOff(Reg::RBP, 0)));
+            instrs.push(Instr::Mov(Val::Reg(Reg::RBX), Val::RegOff(Reg::RBX, 0)));
             instrs.push(Instr::Cmp(Val::Reg(Reg::R10), Val::Reg(Reg::RBX)));
             instrs.push(Instr::JumpEqual(make_vec_end.clone()));
             // Increment loop index
@@ -620,8 +618,13 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<Instr> {
             instrs.push(Instr::Mov(Val::RegOff(Reg::RBX, 0), Val::Reg(Reg::RAX)));
             instrs.push(Instr::Sar(Val::Reg(Reg::R10), Val::Imm(WORD_SIZE_SHIFT)));
             instrs.push(Instr::Jump(make_vec_start));
-
             instrs.push(Instr::Label(make_vec_end));
+            // Return the vector address
+            instrs.push(Instr::Mov(
+                Val::Reg(Reg::RAX),
+                Val::RegOff(Reg::RBP, vec_stack_offset),
+            ));
+            instrs.push(Instr::Add(Val::Reg(Reg::RAX), Val::Imm(1)));
         }
     }
     return instrs;
@@ -708,10 +711,8 @@ fn compile_binary_op(op: Op2, e1: &Expr, e2: &Expr, ctxt: &Context) -> Vec<Instr
 
             instrs.append(&mut compile_expr(e1, ctxt));
             // If e1 didn't evaluate to a number (LSB is not 0), jump to error code
-            if !DISABLE_ERROR_CHECKING {
-                instrs.push(Instr::Test(Val::Reg(Reg::RAX), Val::Imm(1)));
-                instrs.push(Instr::JumpNotZero(INVALID_TYPE_LABEL.to_string()));
-            }
+            instrs.push(Instr::Test(Val::Reg(Reg::RAX), Val::Imm(1)));
+            instrs.push(Instr::JumpNotZero(INVALID_TYPE_LABEL.to_string()));
 
             // Save result of e1 on stack
             instrs.push(Instr::Mov(
@@ -723,10 +724,8 @@ fn compile_binary_op(op: Op2, e1: &Expr, e2: &Expr, ctxt: &Context) -> Vec<Instr
             instrs.append(&mut compile_expr(e2, next_ctxt));
 
             // If e2 didn't evaluate to a number (LSB is not 0), jump to error code
-            if !DISABLE_ERROR_CHECKING {
-                instrs.push(Instr::Test(Val::Reg(Reg::RAX), Val::Imm(1)));
-                instrs.push(Instr::JumpNotZero(INVALID_TYPE_LABEL.to_string()));
-            }
+            instrs.push(Instr::Test(Val::Reg(Reg::RAX), Val::Imm(1)));
+            instrs.push(Instr::JumpNotZero(INVALID_TYPE_LABEL.to_string()));
 
             // Add the appropriate instruction based on the arithmetic operator
             match op {
@@ -881,9 +880,6 @@ fn get_new_label(s: &str) -> String {
 // Sets condition codes with a CMP indicating the result of the inequality comparison.
 // RAX contains false and RBX contains true.
 fn get_inequality_instrs(ctxt: &Context) -> Vec<Instr> {
-    if DISABLE_ERROR_CHECKING {
-        return Vec::new();
-    }
     let mut instrs: Vec<Instr> = Vec::new();
     let stack_offset = (ctxt.si + 1) * WORD_SIZE;
 
@@ -919,9 +915,6 @@ fn get_inequality_instrs(ctxt: &Context) -> Vec<Instr> {
 
 // Returns a vector of instructions that jumps to the numerical overflow error label
 fn get_num_overflow_instrs() -> Vec<Instr> {
-    if DISABLE_ERROR_CHECKING {
-        return Vec::new();
-    }
     let mut instrs: Vec<Instr> = Vec::new();
     instrs.push(Instr::JumpOverflow(NUM_OVERFLOW_LABEL.to_string()));
     return instrs;
