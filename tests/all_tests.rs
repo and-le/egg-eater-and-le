@@ -179,4 +179,20 @@ runtime_error_tests! {
     },
 }
 
-static_error_tests! {}
+static_error_tests! {
+    {
+        name: parse_vec_invalid_1,
+        file: "parse_vec_invalid_1.snek",
+        expected: "Invalid"
+    },
+    {
+        name: parse_vec_get_invalid_1,
+        file: "parse_vec_get_invalid_1.snek",
+        expected: "Invalid"
+    },
+    {
+        name: parse_vec_set_invalid_1,
+        file: "parse_vec_set_invalid_1.snek",
+        expected: "Invalid"
+    },
+}
