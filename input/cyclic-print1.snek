@@ -1,0 +1,7 @@
+(let ((p (vec 10 20 30)))
+    (block
+        (print p)
+        (vec-set! p 1 p)
+        p
+    )
+)

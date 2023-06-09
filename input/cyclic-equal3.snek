@@ -1,0 +1,7 @@
+(let ((p (vec 10 20 30)) (q (vec 10 20 30)) )
+    (block
+        (vec-set! p 1 p)
+        (vec-set! q 1 q)
+        (== p q)
+    )
+)

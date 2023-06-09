@@ -918,8 +918,8 @@ fn is_vector() -> Vec<Instr> {
     }
     let mut instrs = Vec::new();
     instrs.push(Instr::Mov(Val::Reg(Reg::RBX), Val::Reg(Reg::RAX)));
-    instrs.push(Instr::And(Val::Reg(Reg::RBX), Val::Imm(1)));
-    instrs.push(Instr::Cmp(Val::Reg(Reg::RBX), Val::Imm(1)));
+    instrs.push(Instr::And(Val::Reg(Reg::RBX), Val::Imm(0b11)));
+    instrs.push(Instr::Cmp(Val::Reg(Reg::RBX), Val::Imm(0b1)));
     return instrs;
 }
 

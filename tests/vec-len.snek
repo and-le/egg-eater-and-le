@@ -1,6 +1,3 @@
 (let ((x (vec 10 20 30 40)))
-    (block
-        (print (vec-len x))
-        (vec-len nil)
-    )
+    (vec-len x)    
 )

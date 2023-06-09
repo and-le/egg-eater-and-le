@@ -1,0 +1,1 @@
+(let ((p (vec 10 20 30 40))) (vec-get p input))

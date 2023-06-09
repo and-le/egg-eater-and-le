@@ -1,0 +1,11 @@
+(let ( (a (vec 10 nil)) (b (vec 20 nil)) (c (vec 30 nil)) (d (vec 40 nil)) (e (vec 50 nil))  )
+    (block
+        (vec-set! a 1 b)
+        (vec-set! b 1 c)
+        (vec-set! c 1 d)
+        (vec-set! d 1 e)
+        (print a)
+        (vec-set! d 1 b)
+        a
+    )
+)

@@ -1,0 +1,11 @@
+(let ((pair (vec 10 20)) (triple (vec 30 40 nil))) 
+     (block
+        (print (vec-get pair 0))
+        (print (vec-get pair 1))
+        (print pair)
+        (print (vec-get triple 0))
+        (print (vec-get triple 1))
+        (print (vec-get triple 2))
+        triple
+     )
+)
