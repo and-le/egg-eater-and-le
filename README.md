@@ -7,4 +7,4 @@
 Please see the `green-egg-eater.pdf` file for attributions.
 
 # Submission
-zip -r src runtime tests input Cargo.toml Makefile README.md
+zip -r green-egg-eater-code.zip src runtime tests input Cargo.toml Makefile README.md
