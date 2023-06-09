@@ -1,7 +1,0 @@
-(fun (identity a)
-    a
-)
-
-(block 
-    (identity input)
-)

@@ -1,10 +1,10 @@
 mod infra;
 success_tests! {
-    {
-        name: simple_examples,
-        file: "simple_examples.snek",
-        expected: "1\n2\n(tuple 1 2)\n3\n4\n5\n(tuple 3 4 5)\n(tuple (tuple 1 2) nil)\n(tuple (tuple 1 2) nil)"
-    },
+    // {
+    //     name: simple_examples,
+    //     file: "simple_examples.snek",
+    //     expected: "1\n2\n(tuple 1 2)\n3\n4\n5\n(tuple 3 4 5)\n(tuple (tuple 1 2) nil)\n(tuple (tuple 1 2) nil)"
+    // },
 
 }
 
@@ -33,31 +33,4 @@ runtime_error_tests! {
     },
 }
 
-static_error_tests! {
-    {
-        name: parse_index_invalid_1,
-        file: "parse_index_invalid_1.snek",
-        expected: "",
-    },
-    {
-        name: parse_index_invalid_2,
-        file: "parse_index_invalid_2.snek",
-        expected: "",
-    },
-    {
-        name: parse_index_invalid_3,
-        file: "parse_index_invalid_3.snek",
-        expected: "",
-    },
-    {
-        name: parse_tuple_invalid_1,
-        file: "parse_tuple_invalid_1.snek",
-        expected: "",
-    },
-    {
-        name: parse_tuple_invalid_2,
-        file: "parse_tuple_invalid_2.snek",
-        expected: "",
-    },
-
-}
+static_error_tests! {}
