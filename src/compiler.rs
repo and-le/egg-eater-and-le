@@ -554,6 +554,7 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<Instr> {
             instrs.append(&mut is_non_nil_vector());
             instrs.push(Instr::Sub(Val::Reg(Reg::RAX), Val::Imm(1)));
             instrs.push(Instr::Mov(Val::Reg(Reg::RAX), Val::RegOff(Reg::RAX, 0)));
+            instrs.push(Instr::Shl(Val::Reg(Reg::RAX), Val::Imm(1)));
         }
     }
     return instrs;
