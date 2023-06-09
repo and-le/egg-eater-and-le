@@ -11,6 +11,15 @@ const TRUE: i64 = 7;
 const FALSE: i64 = 3;
 const NIL: i64 = 1;
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[repr(i64)]
+pub enum ErrCode {
+    Overflow = 1,
+    InvalidType = 2,
+    IndexOutOfBounds = 3,
+    InvalidVecSize = 4,
+}
+
 // Parse "input" values into their internal representations
 fn parse_input(input: &str) -> i64 {
     match input {
@@ -45,15 +54,14 @@ extern "C" {
 
 // Prints an error message to standard error and then exits the process with a nonzero exit code
 #[export_name = "\x01snek_error"]
-pub extern "C" fn snek_error(errcode: i64) {
+pub extern "C" fn snek_error(errcode: ErrCode) {
     match errcode {
-        1 => eprintln!("an error occurred: numeric overflow"),
-        2 => eprintln!("an error occurred: invalid argument (incompatible types)"),
-        3 => eprintln!("an error occurred: index out of bounds"),
-        4 => eprintln!("an error occurred: invalid vector address"),
-        5 => eprintln!("an error occurred: invalid vector offset"),
-        6 => eprintln!("an error occurred: vector address out of bounds"),
-        _ => eprintln!("Unknown error code: {errcode}"),
+        ErrCode::Overflow => eprintln!("an error occurred: numeric overflow"),
+        ErrCode::InvalidType => {
+            eprintln!("an error occurred: invalid argument")
+        }
+        ErrCode::IndexOutOfBounds => eprintln!("an error occurred: index out of bounds"),
+        ErrCode::InvalidVecSize => eprintln!("an error occurred: invalid vector size"),
     }
     std::process::exit(errcode as i32);
 }

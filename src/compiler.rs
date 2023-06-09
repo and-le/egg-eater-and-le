@@ -448,7 +448,7 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<Instr> {
             ));
             // If the offset expression did not actually evaluate to a number, error.
             instrs.append(&mut is_number());
-            instrs.push(Instr::JumpNotEqual(NOT_INDEX_OFFSET_LABEL.to_string()));
+            instrs.push(Instr::JumpNotEqual(String::from(INVALID_TYPE_LABEL)));
 
             // Convert the offset to its actual number representation
             instrs.push(Instr::Sar(Val::Reg(Reg::RAX), Val::Imm(1)));
@@ -495,7 +495,7 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<Instr> {
             };
             instrs.append(&mut compile_expr(index, &index_ctxt));
             instrs.append(&mut is_number());
-            instrs.push(Instr::JumpNotEqual(NOT_INDEX_OFFSET_LABEL.to_string()));
+            instrs.push(Instr::JumpNotEqual(String::from(INVALID_TYPE_LABEL)));
 
             // Convert the offset to its actual number representation
             instrs.push(Instr::Sar(Val::Reg(Reg::RAX), Val::Imm(1)));
@@ -634,12 +634,10 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<Instr> {
 fn compile_error_instrs() -> Vec<Instr> {
     let mut error_instrs: Vec<Instr> = Vec::new();
 
-    error_instrs.append(&mut get_error_instrs(ERR_NUM_OVERFLOW));
-    error_instrs.append(&mut get_error_instrs(ERR_INVALID_TYPE));
-    error_instrs.append(&mut get_error_instrs(ERR_INDEX_OUT_OF_BOUNDS));
-    error_instrs.append(&mut get_error_instrs(ERR_NOT_VEC));
-    error_instrs.append(&mut get_error_instrs(ERR_NOT_INDEX_OFFSET));
-    error_instrs.append(&mut get_error_instrs(ERR_INVALID_VEC_SIZE));
+    error_instrs.append(&mut get_error_instrs(ErrCode::Overflow));
+    error_instrs.append(&mut get_error_instrs(ErrCode::InvalidType));
+    error_instrs.append(&mut get_error_instrs(ErrCode::IndexOutOfBounds));
+    error_instrs.append(&mut get_error_instrs(ErrCode::InvalidVecSize));
 
     return error_instrs;
 }
@@ -734,6 +732,7 @@ fn compile_binary_op(op: Op2, e1: &Expr, e2: &Expr, ctxt: &Context) -> Vec<Instr
                         Val::Reg(Reg::RAX),
                         Val::RegOff(Reg::RBP, stack_offset),
                     ));
+                    instrs.push(Instr::JumpOverflow(String::from(NUM_OVERFLOW_LABEL)));
                 }
                 Op2::Minus => {
                     // Move result of e2 from rax into rbx
@@ -746,6 +745,7 @@ fn compile_binary_op(op: Op2, e1: &Expr, e2: &Expr, ctxt: &Context) -> Vec<Instr
                     ));
                     // Do [rax] - [rbx]
                     instrs.push(Instr::Sub(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)));
+                    instrs.push(Instr::JumpOverflow(String::from(NUM_OVERFLOW_LABEL)));
                 }
                 Op2::Times => {
                     // For multiplication, shift the result of e2 right 1 bit.
@@ -755,6 +755,7 @@ fn compile_binary_op(op: Op2, e1: &Expr, e2: &Expr, ctxt: &Context) -> Vec<Instr
                         Val::Reg(Reg::RAX),
                         Val::RegOff(Reg::RBP, stack_offset),
                     ));
+                    instrs.push(Instr::JumpOverflow(String::from(NUM_OVERFLOW_LABEL)));
                 }
                 _ => panic!("Should not panic here: {op:?}"),
             }
@@ -836,24 +837,20 @@ fn compile_binary_op(op: Op2, e1: &Expr, e2: &Expr, ctxt: &Context) -> Vec<Instr
 }
 
 // Get the instructions for the error handler for the given error code
-fn get_error_instrs(errcode: i64) -> Vec<Instr> {
+fn get_error_instrs(errcode: ErrCode) -> Vec<Instr> {
     let mut instrs: Vec<Instr> = Vec::new();
 
     match errcode {
-        ERR_NUM_OVERFLOW => instrs.push(Instr::Label(String::from(NUM_OVERFLOW_LABEL))),
-        ERR_INVALID_TYPE => instrs.push(Instr::Label(String::from(INVALID_TYPE_LABEL))),
-        ERR_INDEX_OUT_OF_BOUNDS => {
+        ErrCode::Overflow => instrs.push(Instr::Label(String::from(NUM_OVERFLOW_LABEL))),
+        ErrCode::InvalidType => instrs.push(Instr::Label(String::from(INVALID_TYPE_LABEL))),
+        ErrCode::IndexOutOfBounds => {
             instrs.push(Instr::Label(String::from(INDEX_OUT_OF_BOUNDS_LABEL)))
         }
-        ERR_NOT_VEC => instrs.push(Instr::Label(String::from(NOT_VEC_LABEL))),
-        ERR_NOT_INDEX_OFFSET => instrs.push(Instr::Label(String::from(NOT_INDEX_OFFSET_LABEL))),
-        ERR_INVALID_VEC_SIZE => instrs.push(Instr::Label(String::from(INVALID_VEC_SIZE_LABEL))),
-
-        _ => panic!("Unknown error code: {errcode}"),
+        ErrCode::InvalidVecSize => instrs.push(Instr::Label(String::from(INVALID_VEC_SIZE_LABEL))),
     }
 
     // Pass error code as first function argument to snek_error
-    instrs.push(Instr::Mov(Val::Reg(Reg::EDI), Val::Imm(errcode)));
+    instrs.push(Instr::Mov(Val::Reg(Reg::EDI), Val::Imm(errcode as i64)));
 
     // Call snek_error
     instrs.push(Instr::Call("snek_error".to_string()));
@@ -983,12 +980,12 @@ fn is_non_nil_vector() -> Vec<Instr> {
     // Check that value is not nil
     instrs.push(Instr::Mov(Val::Reg(Reg::RBX), Val::Reg(Reg::RAX)));
     instrs.push(Instr::Cmp(Val::Reg(Reg::RBX), Val::Imm(NIL_VAL)));
-    instrs.push(Instr::JumpEqual(NOT_VEC_LABEL.to_string()));
+    instrs.push(Instr::JumpEqual(String::from(INVALID_TYPE_LABEL)));
 
     // Check that value is vector
     instrs.push(Instr::And(Val::Reg(Reg::RBX), Val::Imm(1)));
     instrs.push(Instr::Cmp(Val::Reg(Reg::RBX), Val::Imm(1)));
-    instrs.push(Instr::JumpNotEqual(NOT_VEC_LABEL.to_string()));
+    instrs.push(Instr::JumpNotEqual(String::from(INVALID_TYPE_LABEL)));
 
     return instrs;
 }

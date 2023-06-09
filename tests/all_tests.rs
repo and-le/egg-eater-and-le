@@ -134,17 +134,17 @@ runtime_error_tests! {
     {
         name: error_tag,
         file: "error-tag.snek",
-        expected: "invalid vector address"
+        expected: "invalid argument"
     },
     {
         name: error3,
         file: "error3.snek",
-        expected: "invalid vector offset"
+        expected: "invalid"
     },
     {
         name: error_vec_get_nil,
         file: "error-vec-get-nil.snek",
-        expected: "invalid vector address"
+        expected: "invalid"
     },
 
     {
@@ -162,7 +162,7 @@ runtime_error_tests! {
     {
         name: error_vec_set_nil,
         file: "error-vec-set-nil.snek",
-        expected: "invalid vector address"
+        expected: "invalid"
     },
     {
         name: error_vec_set_1,
@@ -180,7 +180,13 @@ runtime_error_tests! {
     {
         name: error_vec_len,
         file: "error-vec-len.snek",
-        expected: "invalid vector address"
+        expected: "invalid"
+    },
+
+    {
+        name: error_make_vec,
+        file: "error-make-vec.snek",
+        expected: "invalid vector size"
     },
 }
 

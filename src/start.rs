@@ -6,6 +6,18 @@
 //  */
 // const I63_MIN: i64 = -4611686018427387904;
 // const I63_MAX: i64 = 4611686018427387903;
+// const TRUE: i64 = 7;
+// const FALSE: i64 = 3;
+// const NIL: i64 = 1;
+
+// #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+// #[repr(i64)]
+// pub enum ErrCode {
+//     Overflow = 1,
+//     InvalidType = 2,
+//     IndexOutOfBounds = 3,
+//     InvalidVecSize = 4,
+// }
 
 // // Parse "input" values into their internal representations
 // fn parse_input(input: &str) -> i64 {
@@ -41,55 +53,72 @@
 
 // // Prints an error message to standard error and then exits the process with a nonzero exit code
 // #[export_name = "\x01snek_error"]
-// pub extern "C" fn snek_error(errcode: i64) {
+// pub extern "C" fn snek_error(errcode: ErrCode) {
 //     match errcode {
-//         1 => eprintln!("an error occurred: numeric overflow"),
-//         2 => eprintln!("an error occurred: invalid argument (incompatible types)"),
-//         3 => eprintln!("an error occurred: index out of bounds"),
-//         4 => eprintln!("an error occurred: invalid vector address"),
-//         5 => eprintln!("an error occurred: invalid vector offset"),
-//         6 => eprintln!("an error occurred: vector address out of bounds"),
-//         _ => eprintln!("Unknown error code: {errcode}"),
+//         ErrCode::Overflow => eprintln!("an error occurred: numeric overflow"),
+//         ErrCode::InvalidType => {
+//             eprintln!("an error occurred: invalid argument (incompatible types)")
+//         }
+//         ErrCode::IndexOutOfBounds => eprintln!("an error occurred: index out of bounds"),
+//         ErrCode::InvalidVecSize => eprintln!("an error occurred: invalid vector size"),
+//         _ => eprintln!("Unknown error code: {errcode:?}"),
 //     }
 //     std::process::exit(errcode as i32);
 // }
 
-// // Recursive structural equality. Permits comparison of values with different types
+// // Checks structural equality of two values.
 // #[export_name = "\x01snek_equals"]
-// pub unsafe extern "C" fn snek_equals(val1: i64, val2: i64) -> bool {
+// pub unsafe extern "C" fn snek_equals(val1: i64, val2: i64) -> i64 {
 //     snek_equals_helper(val1, val2, &mut HashSet::<(i64, i64)>::new())
 // }
 
-// unsafe fn snek_equals_helper(val1: i64, val2: i64, seen: &mut HashSet<(i64, i64)>) -> bool {
+// // Helper function for structural equality
+// unsafe fn snek_equals_helper(val1: i64, val2: i64, seen: &mut HashSet<(i64, i64)>) -> i64 {
 //     if val1 & 3 == 1 && val2 & 3 == 1 {
 //         if val1 == val2 {
+//             // println!("Pointers are equal");
 //             seen.remove(&(val1, val2));
-//             return true;
+//             return TRUE;
+//         }
+//         if val1 == NIL || val2 == NIL {
+//             // println!("Pointer is NIL");
+//             seen.remove(&(val1, val2));
+//             return FALSE;
 //         }
 //         if !seen.insert((val1, val2)) {
-//             return true;
+//             // println!("Pointers seen before");
+//             seen.remove(&(val1, val2));
+//             return TRUE;
 //         }
+
 //         let addr1 = (val1 - 1) as *const u64;
 //         let addr2 = (val2 - 1) as *const u64;
 //         let size1 = addr1.read();
 //         let size2 = addr2.read();
 //         if size1 != size2 {
-//             return false;
+//             return FALSE;
 //         }
 //         // Compare each of the values of val1 and val2
 //         for i in 0..size1 {
 //             let elem1 = addr1.add(1 + i as usize).read() as i64;
 //             let elem2 = addr2.add(1 + i as usize).read() as i64;
-//             if !snek_equals_helper(elem1, elem2, seen) {
-//                 return false;
+//             if snek_equals_helper(elem1, elem2, seen) == FALSE {
+//                 return FALSE;
 //             }
 //         }
 //         seen.remove(&(val1, val2));
-//         true
+//         // println!("Structurally equal");
+//         TRUE
 //     } else {
 //         // If val1 and val2 aren't pointers, use reference equality
 //         seen.remove(&(val1, val2));
-//         val1 == val2
+//         if val1 == val2 {
+//             // println!("Referentially equal");
+//             return TRUE;
+//         } else {
+//             // println!("Referentially unequal");
+//             return FALSE;
+//         }
 //     }
 // }
 
