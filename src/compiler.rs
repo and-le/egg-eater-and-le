@@ -384,23 +384,23 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<Instr> {
         }
         Expr::Vec(args) => {
             // Save the current value of the heap pointer on the stack; this is the return value.
-            let tup_addr_offset = (ctxt.si + 1) * WORD_SIZE;
+            let vec_stack_offset = (ctxt.si + 1) * WORD_SIZE;
             instrs.push(Instr::Mov(
-                Val::RegOff(Reg::RBP, tup_addr_offset),
+                Val::RegOff(Reg::RBP, vec_stack_offset),
                 Val::Reg(Reg::R15),
             ));
 
-            // Allocate space for the tuple on the heap
+            // Allocate space for the vector on the heap
             instrs.push(Instr::Add(
                 Val::Reg(Reg::R15),
                 Val::Imm(WORD_SIZE * (1 + args.len() as i64)),
             ));
 
-            // Store the size of the tuple
+            // Store the size of the vector
             instrs.push(Instr::Mov(Val::Reg(Reg::R10), Val::Imm(args.len() as i64)));
             instrs.push(Instr::Mov(
                 Val::Reg(Reg::RBX),
-                Val::RegOff(Reg::RBP, tup_addr_offset),
+                Val::RegOff(Reg::RBP, vec_stack_offset),
             ));
             instrs.push(Instr::Mov(Val::RegOff(Reg::RBX, 0), Val::Reg(Reg::R10)));
 
@@ -415,7 +415,7 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<Instr> {
                 ));
                 instrs.push(Instr::Mov(
                     Val::Reg(Reg::RBX),
-                    Val::RegOff(Reg::RBP, tup_addr_offset),
+                    Val::RegOff(Reg::RBP, vec_stack_offset),
                 ));
                 instrs.push(Instr::Add(
                     Val::Reg(Reg::RBX),
@@ -426,7 +426,7 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<Instr> {
             // Tag the start address of the heap pointer before returning it
             instrs.push(Instr::Mov(
                 Val::Reg(Reg::RAX),
-                Val::RegOff(Reg::RBP, tup_addr_offset),
+                Val::RegOff(Reg::RBP, vec_stack_offset),
             ));
             instrs.push(Instr::Add(Val::Reg(Reg::RAX), Val::Imm(1)));
         }
@@ -556,6 +556,73 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<Instr> {
             instrs.push(Instr::Mov(Val::Reg(Reg::RAX), Val::RegOff(Reg::RAX, 0)));
             instrs.push(Instr::Shl(Val::Reg(Reg::RAX), Val::Imm(1)));
         }
+        Expr::MakeVec(size, elem) => {
+            // Allocate a vector with the given size
+            instrs.append(&mut compile_expr(size, ctxt));
+            instrs.append(&mut is_positive_int());
+            instrs.push(Instr::Shl(
+                Val::Reg(Reg::RAX),
+                Val::Imm(SNEK_NUMBER_TO_OFFSET_SHIFT),
+            ));
+
+            // Save the current value of the heap pointer on the stack; this is the return value.
+            let vec_stack_offset = (ctxt.si + 1) * WORD_SIZE;
+            instrs.push(Instr::Mov(
+                Val::RegOff(Reg::RBP, vec_stack_offset),
+                Val::Reg(Reg::R15),
+            ));
+
+            // Allocate space for the vector on the heap
+            instrs.push(Instr::Add(Val::Reg(Reg::R15), Val::Reg(Reg::RAX)));
+
+            // Store the size of the vector
+            instrs.push(Instr::Sar(
+                Val::Reg(Reg::RAX),
+                Val::Imm(OFFSET_TO_NUMBER_SHIFT),
+            ));
+            instrs.push(Instr::Mov(
+                Val::Reg(Reg::RBX),
+                Val::RegOff(Reg::RBP, vec_stack_offset),
+            ));
+            instrs.push(Instr::Mov(Val::RegOff(Reg::RBX, 0), Val::Reg(Reg::RAX)));
+
+            // Compute the element to fill the vector with
+            let elem_ctxt = Context {
+                si: ctxt.si + 2,
+                ..*ctxt
+            };
+            instrs.append(&mut compile_expr(elem, &elem_ctxt));
+
+            // Loop to fill vector
+            let make_vec_start = get_new_label("make_vec_start");
+            let make_vec_end = get_new_label("make_vec_end");
+            // R10 serves as the loop index
+            instrs.push(Instr::Mov(Val::Reg(Reg::R10), Val::Imm(0)));
+            instrs.push(Instr::Label(make_vec_start.clone()));
+            // Check the loop index against the size of the vector
+            instrs.push(Instr::Mov(
+                Val::Reg(Reg::RBX),
+                Val::RegOff(Reg::RBP, vec_stack_offset),
+            ));
+            instrs.push(Instr::Mov(Val::Reg(Reg::RBX), Val::RegOff(Reg::RBP, 0)));
+            instrs.push(Instr::Cmp(Val::Reg(Reg::R10), Val::Reg(Reg::RBX)));
+            instrs.push(Instr::JumpEqual(make_vec_end.clone()));
+            // Increment loop index
+            instrs.push(Instr::Add(Val::Reg(Reg::R10), Val::Imm(1)));
+            // Compute address to store element at
+            instrs.push(Instr::Mov(
+                Val::Reg(Reg::RBX),
+                Val::RegOff(Reg::RBP, vec_stack_offset),
+            ));
+            // Store the element
+            instrs.push(Instr::Shl(Val::Reg(Reg::R10), Val::Imm(WORD_SIZE_SHIFT)));
+            instrs.push(Instr::Add(Val::Reg(Reg::RBX), Val::Reg(Reg::R10)));
+            instrs.push(Instr::Mov(Val::RegOff(Reg::RBX, 0), Val::Reg(Reg::RAX)));
+            instrs.push(Instr::Sar(Val::Reg(Reg::R10), Val::Imm(WORD_SIZE_SHIFT)));
+            instrs.push(Instr::Jump(make_vec_start));
+
+            instrs.push(Instr::Label(make_vec_end));
+        }
     }
     return instrs;
 }
@@ -569,6 +636,7 @@ fn compile_error_instrs() -> Vec<Instr> {
     error_instrs.append(&mut get_error_instrs(ERR_INDEX_OUT_OF_BOUNDS));
     error_instrs.append(&mut get_error_instrs(ERR_NOT_VEC));
     error_instrs.append(&mut get_error_instrs(ERR_NOT_INDEX_OFFSET));
+    error_instrs.append(&mut get_error_instrs(ERR_INVALID_VEC_SIZE));
 
     return error_instrs;
 }
@@ -770,24 +838,17 @@ fn compile_binary_op(op: Op2, e1: &Expr, e2: &Expr, ctxt: &Context) -> Vec<Instr
 
 // Get the instructions for the error handler for the given error code
 fn get_error_instrs(errcode: i64) -> Vec<Instr> {
-    if DISABLE_ERROR_CHECKING {
-        return Vec::new();
-    }
     let mut instrs: Vec<Instr> = Vec::new();
 
     match errcode {
-        ERR_NUM_OVERFLOW => {
-            instrs.push(Instr::Label(String::from(NUM_OVERFLOW_LABEL)));
-        }
-        ERR_INVALID_TYPE => {
-            instrs.push(Instr::Label(String::from(INVALID_TYPE_LABEL)));
-        }
+        ERR_NUM_OVERFLOW => instrs.push(Instr::Label(String::from(NUM_OVERFLOW_LABEL))),
+        ERR_INVALID_TYPE => instrs.push(Instr::Label(String::from(INVALID_TYPE_LABEL))),
         ERR_INDEX_OUT_OF_BOUNDS => {
             instrs.push(Instr::Label(String::from(INDEX_OUT_OF_BOUNDS_LABEL)))
         }
-
         ERR_NOT_VEC => instrs.push(Instr::Label(String::from(NOT_VEC_LABEL))),
         ERR_NOT_INDEX_OFFSET => instrs.push(Instr::Label(String::from(NOT_INDEX_OFFSET_LABEL))),
+        ERR_INVALID_VEC_SIZE => instrs.push(Instr::Label(String::from(INVALID_VEC_SIZE_LABEL))),
 
         _ => panic!("Unknown error code: {errcode}"),
     }
@@ -869,9 +930,6 @@ fn get_num_overflow_instrs() -> Vec<Instr> {
 // Returns a vector of instructions that checks whether the current value in RAX is a number.
 // Uses RBX for intermediate computation, and does a CMP that sets condition codes.
 fn is_number() -> Vec<Instr> {
-    if DISABLE_ERROR_CHECKING {
-        return Vec::new();
-    }
     let mut instrs = Vec::new();
     instrs.push(Instr::Mov(Val::Reg(Reg::RBX), Val::Reg(Reg::RAX)));
     instrs.push(Instr::Not(Val::Reg(Reg::RBX)));
@@ -883,21 +941,25 @@ fn is_number() -> Vec<Instr> {
 // Returns a vector of instructions that checks whether the current value in RAX
 // is a number. Throws an error if this value is not a number, otherwise continues.
 fn is_number_with_error() -> Vec<Instr> {
-    if DISABLE_ERROR_CHECKING {
-        return Vec::new();
-    }
     let mut instrs = Vec::new();
     instrs.append(&mut is_number());
-    instrs.push(Instr::JumpNotEqual(INVALID_TYPE_LABEL.to_string()));
+    instrs.push(Instr::JumpNotEqual(String::from(INVALID_TYPE_LABEL)));
+    return instrs;
+}
+
+// Returns a vector of instructions that checks whether the current value in RAX
+// is a positive integer. Throws an error if not, otherwise continues.
+fn is_positive_int() -> Vec<Instr> {
+    let mut instrs = Vec::new();
+    instrs.append(&mut &mut is_number_with_error());
+    instrs.push(Instr::Cmp(Val::Reg(Reg::RAX), Val::Imm(1)));
+    instrs.push(Instr::JumpLess(String::from(INVALID_VEC_SIZE_LABEL)));
     return instrs;
 }
 
 // Returns a vector of instructions that checks whether the current value in RAX is a Boolean.
 // Uses RBX for intermediate computation, and does a CMP that sets condition codes.
 fn is_boolean() -> Vec<Instr> {
-    if DISABLE_ERROR_CHECKING {
-        return Vec::new();
-    }
     let mut instrs = Vec::new();
     instrs.push(Instr::Mov(Val::Reg(Reg::RBX), Val::Reg(Reg::RAX)));
 
@@ -913,9 +975,6 @@ fn is_boolean() -> Vec<Instr> {
 // Returns a vector of instructions that checks whether the current value in RAX is a non-nil vector.
 // Uses RBX for intermediate computation, and does a CMP that sets condition codes.
 fn is_vector() -> Vec<Instr> {
-    if DISABLE_ERROR_CHECKING {
-        return Vec::new();
-    }
     let mut instrs = Vec::new();
     instrs.push(Instr::Mov(Val::Reg(Reg::RBX), Val::Reg(Reg::RAX)));
     instrs.push(Instr::And(Val::Reg(Reg::RBX), Val::Imm(0b11)));
@@ -945,9 +1004,6 @@ fn is_non_nil_vector() -> Vec<Instr> {
 // and the next value on the stack at lower memory are the same type. If the types are different,
 // jumps to error code; otherwise, continues.
 fn are_same_types(stack_offset: i64) -> Vec<Instr> {
-    if DISABLE_ERROR_CHECKING {
-        return Vec::new();
-    }
     let mut instrs = Vec::new();
     // Move the contents of RAX into RBX
     instrs.push(Instr::Mov(Val::Reg(Reg::RBX), Val::Reg(Reg::RAX)));
@@ -1016,5 +1072,6 @@ fn depth(expr: &Expr) -> u32 {
             .max(depth(index) + 1)
             .max(depth(value) + 2)
             .max(2),
+        Expr::MakeVec(size, elem) => depth(size).max(depth(elem) + 1).max(2),
     }
 }

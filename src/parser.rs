@@ -220,6 +220,11 @@ fn parse_sexpr(sexpr: &Sexp) -> Expr {
                 Expr::VecLen(Box::new(parse_sexpr(e)))
             }
 
+            // Vector length
+            [Sexp::Atom(S(keyword)), e1, e2] if keyword == "make-vec" => {
+                Expr::MakeVec(Box::new(parse_sexpr(e1)), Box::new(parse_sexpr(e2)))
+            }
+
             // Function call
             [Sexp::Atom(S(funname)), args @ ..] => {
                 if is_keyword(funname) {

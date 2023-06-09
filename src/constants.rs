@@ -3,6 +3,8 @@
  */
 pub const WORD_SIZE: i64 = 8;
 pub const WORD_SIZE_SHIFT: i64 = 3;
+pub const SNEK_NUMBER_TO_OFFSET_SHIFT: i64 = 2;
+pub const OFFSET_TO_NUMBER_SHIFT: i64 = 3;
 
 pub const I63_MIN: i64 = -4611686018427387904;
 pub const I63_MAX: i64 = 4611686018427387903;
@@ -26,3 +28,6 @@ pub const NOT_VEC_LABEL: &str = "error_not_vec";
 
 pub const ERR_NOT_INDEX_OFFSET: i64 = 5;
 pub const NOT_INDEX_OFFSET_LABEL: &str = "error_not_index_offset";
+
+pub const ERR_INVALID_VEC_SIZE: i64 = 6;
+pub const INVALID_VEC_SIZE_LABEL: &str = "error_invalid_vec_size";

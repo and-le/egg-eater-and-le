@@ -48,6 +48,7 @@ pub enum Expr {
     VecGet(Box<Expr>, Box<Expr>),
     VecSet(Box<Expr>, Box<Expr>, Box<Expr>),
     VecLen(Box<Expr>),
+    MakeVec(Box<Expr>, Box<Expr>),
 }
 
 // A function consists of a name, 0 or more named parameters (arguments), and a body
