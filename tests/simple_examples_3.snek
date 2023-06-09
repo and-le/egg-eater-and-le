@@ -4,7 +4,6 @@
         (vec-set! triple 0 60)
         (vec-set! triple 1 70)
         (vec-set! triple 2 80)
-        (print triple)
-        0
+        triple        
      )
 )

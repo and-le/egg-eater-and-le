@@ -1,0 +1,6 @@
+(let ((p (vec 10 20 30 40)))
+    (block
+        (vec-set! p input 231)
+        p
+    )
+)

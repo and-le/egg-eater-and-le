@@ -462,7 +462,7 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<Instr> {
             ));
             instrs.push(Instr::Sub(Val::Reg(Reg::RBX), Val::Imm(1)));
 
-            // Get the tuple size at the address
+            // Get the vector size at the address
             instrs.push(Instr::Mov(Val::Reg(Reg::R10), Val::RegOff(Reg::RBX, 0)));
             instrs.push(Instr::Cmp(Val::Reg(Reg::RAX), Val::Reg(Reg::R10)));
             instrs.push(Instr::JumpGreaterEqual(
@@ -499,6 +499,24 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<Instr> {
             instrs.append(&mut is_number());
             instrs.push(Instr::JumpNotEqual(NOT_INDEX_OFFSET_LABEL.to_string()));
 
+            // Convert the offset to its actual number representation
+            instrs.push(Instr::Sar(Val::Reg(Reg::RAX), Val::Imm(1)));
+
+            // Unmask the address by clearing the LSB
+            instrs.push(Instr::Mov(
+                Val::Reg(Reg::RBX),
+                Val::RegOff(Reg::RBP, vec_stack_offset),
+            ));
+            instrs.push(Instr::Sub(Val::Reg(Reg::RBX), Val::Imm(1)));
+            // Get the vector size at the address
+            instrs.push(Instr::Mov(Val::Reg(Reg::R10), Val::RegOff(Reg::RBX, 0)));
+            instrs.push(Instr::Cmp(Val::Reg(Reg::RAX), Val::Reg(Reg::R10)));
+            instrs.push(Instr::JumpGreaterEqual(
+                INDEX_OUT_OF_BOUNDS_LABEL.to_string(),
+            ));
+            instrs.push(Instr::Cmp(Val::Reg(Reg::RAX), Val::Imm(0)));
+            instrs.push(Instr::JumpLess(INDEX_OUT_OF_BOUNDS_LABEL.to_string()));
+
             // Save index on stack
             let index_stack_offset = (ctxt.si + 2) * WORD_SIZE;
             instrs.push(Instr::Mov(
@@ -524,13 +542,18 @@ fn compile_expr(expr: &Expr, ctxt: &Context) -> Vec<Instr> {
                 Val::Reg(Reg::R10),
                 Val::RegOff(Reg::RBP, index_stack_offset),
             ));
-            instrs.push(Instr::Sar(Val::Reg(Reg::R10), Val::Imm(1)));
             instrs.push(Instr::Add(Val::Reg(Reg::R10), Val::Imm(1)));
             instrs.push(Instr::Shl(Val::Reg(Reg::R10), Val::Imm(WORD_SIZE_SHIFT)));
             instrs.push(Instr::Add(Val::Reg(Reg::R10), Val::Reg(Reg::RBX)));
             // Set value
             instrs.push(Instr::Mov(Val::RegOff(Reg::R10, 0), Val::Reg(Reg::RAX)));
             instrs.push(Instr::Mov(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)));
+        }
+        Expr::VecLen(vec) => {
+            instrs.append(&mut compile_expr(vec, ctxt));
+            instrs.append(&mut is_non_nil_vector());
+            instrs.push(Instr::Sub(Val::Reg(Reg::RAX), Val::Imm(1)));
+            instrs.push(Instr::Mov(Val::Reg(Reg::RAX), Val::RegOff(Reg::RAX, 0)));
         }
     }
     return instrs;
@@ -986,6 +1009,7 @@ fn depth(expr: &Expr) -> u32 {
             .max()
             .unwrap_or(0)
             .max(args.len() as u32),
+        Expr::VecLen(e) => depth(e),
         Expr::VecGet(vec, offset) => depth(vec).max(depth(offset) + 1),
         Expr::VecSet(vec, index, value) => depth(vec)
             .max(depth(index) + 1)

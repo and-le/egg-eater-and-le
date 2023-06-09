@@ -2,6 +2,6 @@
     (block
         (print p)
         (vec-set! p 1 p)
-        (print p)
+        p
     )
 )

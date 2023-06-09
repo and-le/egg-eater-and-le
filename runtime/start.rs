@@ -58,12 +58,13 @@ pub extern "C" fn snek_error(errcode: i64) {
     std::process::exit(errcode as i32);
 }
 
-// Recursive structural equality. Permits comparison of values with different types
+// Checks structural equality of two values.
 #[export_name = "\x01snek_equals"]
 pub unsafe extern "C" fn snek_equals(val1: i64, val2: i64) -> i64 {
     snek_equals_helper(val1, val2, &mut HashSet::<(i64, i64)>::new())
 }
 
+// Helper function for structural equality
 unsafe fn snek_equals_helper(val1: i64, val2: i64, seen: &mut HashSet<(i64, i64)>) -> i64 {
     if val1 & 3 == 1 && val2 & 3 == 1 {
         if val1 == val2 {

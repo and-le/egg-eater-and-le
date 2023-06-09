@@ -215,6 +215,11 @@ fn parse_sexpr(sexpr: &Sexp) -> Expr {
                 Box::new(parse_sexpr(e3)),
             ),
 
+            // Vector length
+            [Sexp::Atom(S(keyword)), e] if keyword == "vec-len" => {
+                Expr::VecLen(Box::new(parse_sexpr(e)))
+            }
+
             // Function call
             [Sexp::Atom(S(funname)), args @ ..] => {
                 if is_keyword(funname) {

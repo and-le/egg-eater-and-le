@@ -5,7 +5,6 @@
         (vec-set! p 1 q)
         (vec-set! q 1 q)
         (print p)
-        (print q)
-        0
+        q        
     )
 )

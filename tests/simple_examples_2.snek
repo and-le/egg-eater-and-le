@@ -1,3 +1,3 @@
-(let ((p1 (vec 10 20)) (p2 (vec 30 40)) (p3 (vec p1 p2))) 
-     (print p3)
+(let ((a (vec (vec 10 20 nil) (vec 30 40 nil)))) 
+     a
 )

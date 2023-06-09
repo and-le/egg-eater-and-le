@@ -1,4 +1,4 @@
-(let ( (p (vec 10 20)) (q (vec 10 20)) (r (vec 30 40)) )
+(let ((p (vec 10 20)) (q (vec 10 20)) (r (vec 30 40)))
      (block
         (print (== 5 5))
         (print (== 5 10))
@@ -8,7 +8,6 @@
         (print (== p nil))
         (print (== p p))
         (print (== p q))
-        (print (== q r))
-        0
+        (== q r)        
      )
 )
