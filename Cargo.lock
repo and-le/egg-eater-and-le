@@ -107,15 +107,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "egg_eater"
-version = "0.1.0"
-dependencies = [
- "im",
- "prettydiff",
- "sexp",
-]
-
-[[package]]
 name = "encode_unicode"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -151,6 +142,15 @@ dependencies = [
  "cfg-if",
  "libc",
  "wasi",
+]
+
+[[package]]
+name = "green_egg_eater"
+version = "0.1.0"
+dependencies = [
+ "im",
+ "prettydiff",
+ "sexp",
 ]
 
 [[package]]
